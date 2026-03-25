@@ -28,6 +28,24 @@ import PortfolioOnboarding from './components/PortfolioOnboarding';
 import { I18nProvider, useI18n } from './lib/i18n';
 
 type AuthStatus = 'checking' | 'needs-portfolio' | 'hydrating' | 'authenticated' | 'unauthenticated';
+const SESSION_SNAPSHOT_KEY = 'rentdesk_session_snapshot_v1';
+
+const loadSessionSnapshot = () => {
+  try {
+    const raw = appStorage.getItem(SESSION_SNAPSHOT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveSessionSnapshot = (snapshot: any) => {
+  try {
+    appStorage.setItem(SESSION_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {
+    // ignore storage write issues and keep app usable
+  }
+};
 
 const RequireAuth = ({ children }: { children: ReactElement }) => {
   const { t } = useI18n();
@@ -59,6 +77,13 @@ const RequireAuth = ({ children }: { children: ReactElement }) => {
         appStorage.removeItem('rentdesk_active_portfolio_id');
       }
 
+      saveSessionSnapshot({
+        user,
+        portfolios,
+        activePortfolioId,
+        cachedAt: new Date().toISOString()
+      });
+
       if (!portfolios.length) {
         setStatus('needs-portfolio');
         return;
@@ -67,9 +92,32 @@ const RequireAuth = ({ children }: { children: ReactElement }) => {
       setStatus('hydrating');
       await preloadUserData(api);
       setStatus('authenticated');
-    } catch {
-      appStorage.removeItem('rentdesk_token');
-      appStorage.removeItem('rentdesk_active_portfolio_id');
+    } catch (error: any) {
+      const statusCode = Number(error?.response?.status || 0);
+      const isUnauthorized = statusCode === 401;
+
+      if (isUnauthorized) {
+        appStorage.removeItem('rentdesk_token');
+        appStorage.removeItem('rentdesk_active_portfolio_id');
+        setCurrentUser(null);
+        setStatus('unauthenticated');
+        return;
+      }
+
+      const fallbackSnapshot = loadSessionSnapshot();
+      if (fallbackSnapshot?.user) {
+        setCurrentUser(fallbackSnapshot.user);
+        if (fallbackSnapshot.activePortfolioId) {
+          appStorage.setItem('rentdesk_active_portfolio_id', String(fallbackSnapshot.activePortfolioId));
+        }
+        if ((fallbackSnapshot.portfolios || []).length) {
+          setStatus('authenticated');
+        } else {
+          setStatus('needs-portfolio');
+        }
+        return;
+      }
+
       setCurrentUser(null);
       setStatus('unauthenticated');
     }

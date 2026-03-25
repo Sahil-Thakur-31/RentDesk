@@ -20,10 +20,6 @@ const dashboardSessionCache = {
 const Dashboard = () => {
   const { t } = useI18n();
   const MIN_LOADING_MS = 1000;
-  const BLOCKING_PAST_MONTHS = 3;
-  const BLOCKING_FUTURE_MONTHS = 3;
-  const BACKGROUND_PAST_MONTHS = 12;
-  const BACKGROUND_FUTURE_MONTHS = 6;
   const LOADING_MESSAGES = [
     'Loading properties...',
     'Loading units...',
@@ -57,9 +53,8 @@ const Dashboard = () => {
     );
     return LOADING_MESSAGES[stageIndex];
   };
-  const cachedGet = async (url: string, params?: Record<string, any>) => {
-    const config = { url, method: 'get' as const, params };
-    const cached = getCachedResponse(config);
+  const localFirstGet = async (url: string, params?: Record<string, any>) => {
+    const cached = getCachedResponse({ url, method: 'get', params });
     if (cached !== undefined) {
       return { data: cached };
     }
@@ -191,34 +186,34 @@ const Dashboard = () => {
     if (scopePropertyId) {
       const [unitsRes, tenantsRes, rentRes, rentPaidRes, billRes, billPaidRes, maintenancePaidRes, allPaymentsRes] =
         await Promise.all([
-          cachedGet(`/properties/${scopePropertyId}/units`, { archived: false }),
-          cachedGet(`/properties/${scopePropertyId}/tenants`),
-          cachedGet(`/properties/${scopePropertyId}/rent-records`, {
+          localFirstGet(`/properties/${scopePropertyId}/units`, { archived: false }),
+          localFirstGet(`/properties/${scopePropertyId}/tenants`),
+          localFirstGet(`/properties/${scopePropertyId}/rent-records`, {
             month: scopeMonthNum,
             year: scopeYear,
             status: 'unpaid,partial'
           }),
-          cachedGet(`/properties/${scopePropertyId}/rent-records`, {
+          localFirstGet(`/properties/${scopePropertyId}/rent-records`, {
             month: scopeMonthNum,
             year: scopeYear,
             status: 'paid'
           }),
-          cachedGet(`/properties/${scopePropertyId}/utility-bills`, {
+          localFirstGet(`/properties/${scopePropertyId}/utility-bills`, {
             billType: 'electricity',
             month: monthKey,
             status: 'unpaid,partial'
           }),
-          cachedGet(`/properties/${scopePropertyId}/utility-bills`, {
+          localFirstGet(`/properties/${scopePropertyId}/utility-bills`, {
             billType: 'electricity',
             month: monthKey,
             status: 'paid'
           }),
-          cachedGet(`/properties/${scopePropertyId}/payments`, {
+          localFirstGet(`/properties/${scopePropertyId}/payments`, {
             type: 'maintenance',
             startDate,
             endDate
           }),
-          cachedGet(`/properties/${scopePropertyId}/payments`)
+          localFirstGet(`/properties/${scopePropertyId}/payments`)
         ]);
 
       const allPayments = allPaymentsRes.data || [];
@@ -335,7 +330,7 @@ const Dashboard = () => {
 
     const rentBatches = await Promise.all(
       scopeProperties.map((prop) =>
-        cachedGet(`/properties/${prop._id}/rent-records`, {
+        localFirstGet(`/properties/${prop._id}/rent-records`, {
           month: scopeMonthNum,
           year: scopeYear,
           status: 'unpaid,partial'
@@ -344,7 +339,7 @@ const Dashboard = () => {
     );
     const rentPaidBatches = await Promise.all(
       scopeProperties.map((prop) =>
-        cachedGet(`/properties/${prop._id}/rent-records`, {
+        localFirstGet(`/properties/${prop._id}/rent-records`, {
           month: scopeMonthNum,
           year: scopeYear,
           status: 'paid'
@@ -353,7 +348,7 @@ const Dashboard = () => {
     );
     const billBatches = await Promise.all(
       scopeProperties.map((prop) =>
-        cachedGet(`/properties/${prop._id}/utility-bills`, {
+        localFirstGet(`/properties/${prop._id}/utility-bills`, {
           billType: 'electricity',
           month: monthKey,
           status: 'unpaid,partial'
@@ -362,7 +357,7 @@ const Dashboard = () => {
     );
     const billPaidBatches = await Promise.all(
       scopeProperties.map((prop) =>
-        cachedGet(`/properties/${prop._id}/utility-bills`, {
+        localFirstGet(`/properties/${prop._id}/utility-bills`, {
           billType: 'electricity',
           month: monthKey,
           status: 'paid'
@@ -370,11 +365,11 @@ const Dashboard = () => {
       )
     );
     const tenantBatches = await Promise.all(
-      scopeProperties.map((prop) => cachedGet(`/properties/${prop._id}/tenants`))
+      scopeProperties.map((prop) => localFirstGet(`/properties/${prop._id}/tenants`))
     );
     const maintenancePaidBatches = await Promise.all(
       scopeProperties.map((prop) =>
-        cachedGet(`/properties/${prop._id}/payments`, {
+        localFirstGet(`/properties/${prop._id}/payments`, {
           type: 'maintenance',
           startDate,
           endDate
@@ -382,7 +377,7 @@ const Dashboard = () => {
       )
     );
     const allPaymentBatches = await Promise.all(
-      scopeProperties.map((prop) => cachedGet(`/properties/${prop._id}/payments`))
+      scopeProperties.map((prop) => localFirstGet(`/properties/${prop._id}/payments`))
     );
 
     const combinedTenants = tenantBatches.flatMap((response) => response.data || []);
@@ -535,12 +530,19 @@ const Dashboard = () => {
     const [scopeYearRaw, scopeMonthRaw] = scopeMonth.split('-').map(Number);
     const scopeYear = Number.isNaN(scopeYearRaw) ? year : scopeYearRaw;
     const scopeMonthNum = Number.isNaN(scopeMonthRaw) ? month : scopeMonthRaw;
+    const localDashboard = isScopeBundleLocallyAvailable(scopePropertyId, scopeMonth, scopeProperties)
+      ? buildDashboardFromLocal(scopePropertyId, scopeMonth, scopeProperties)
+      : null;
     const [dashboardResponse, meta] = await Promise.all([
-      cachedGet('/dashboard', {
-        month: scopeMonthNum,
-        year: scopeYear,
-        propertyId: scopePropertyId || undefined
-      }),
+      localDashboard
+        ? Promise.resolve({ data: localDashboard })
+        : api.get('/dashboard', {
+            params: {
+              month: scopeMonthNum,
+              year: scopeYear,
+              propertyId: scopePropertyId || undefined
+            }
+          }),
       buildMetaForScope(scopePropertyId, scopeMonth, scopeProperties)
     ]);
 
@@ -552,23 +554,217 @@ const Dashboard = () => {
     return bundle;
   };
 
+  const buildDashboardFromLocal = (scopePropertyId: string, scopeMonth: string, scopeProperties: any[]) => {
+    const [scopeYearRaw, scopeMonthRaw] = scopeMonth.split('-').map(Number);
+    const scopeYear = Number.isNaN(scopeYearRaw) ? year : scopeYearRaw;
+    const scopeMonthNum = Number.isNaN(scopeMonthRaw) ? month : scopeMonthRaw;
+    const monthKey = getMonthKey(scopeYear, scopeMonthNum);
+    const monthStart = new Date(scopeYear, scopeMonthNum - 1, 1);
+    const monthEnd = new Date(scopeYear, scopeMonthNum, 0, 23, 59, 59, 999);
+    const scopedPropertyList = (scopePropertyId
+      ? scopeProperties.filter((property) => String(property._id) === String(scopePropertyId))
+      : scopeProperties
+    ).filter((property) => !property?.isArchived);
+
+    if (!scopedPropertyList.length) {
+      return {
+        totals: {
+          totalProperties: 0,
+          totalUnits: 0,
+          occupiedUnits: 0,
+          vacantUnits: 0,
+          monthlyExpectedRent: 0,
+          collectedRent: 0,
+          pendingRent: 0,
+          monthlyMaintenanceExpected: 0,
+          monthlyMaintenanceCollected: 0,
+          monthlyMaintenancePending: 0,
+          monthlyMaintenance: 0,
+          monthlyElectricity: { total: 0, collected: 0, unpaid: 0 },
+          depositRequired: 0,
+          depositCollected: 0,
+          depositPending: 0,
+          otherCashIntake: 0
+        },
+        charts: { rentCollection: [], maintenanceExpenses: [] },
+        lists: { pendingRentTenants: [] }
+      };
+    }
+
+    const scopedPropertyIds = new Set(scopedPropertyList.map((property) => String(property._id)));
+    const allUnits = scopedPropertyList.flatMap(
+      (property) => (getCachedResponse({ url: `/properties/${property._id}/units`, method: 'get', params: { archived: false } }) as any[]) || []
+    );
+    const allTenants = scopedPropertyList.flatMap(
+      (property) => (getCachedResponse({ url: `/properties/${property._id}/tenants`, method: 'get' }) as any[]) || []
+    );
+    const allRentRecords = scopedPropertyList.flatMap(
+      (property) => (getCachedResponse({ url: `/properties/${property._id}/rent-records`, method: 'get' }) as any[]) || []
+    );
+    const allUtilityBills = scopedPropertyList.flatMap(
+      (property) => (getCachedResponse({ url: `/properties/${property._id}/utility-bills`, method: 'get' }) as any[]) || []
+    );
+    const allMaintenanceExpenses = scopedPropertyList.flatMap(
+      (property) => (getCachedResponse({ url: `/properties/${property._id}/maintenance`, method: 'get' }) as any[]) || []
+    );
+    const allPayments = scopedPropertyList.flatMap(
+      (property) => (getCachedResponse({ url: `/properties/${property._id}/payments`, method: 'get' }) as any[]) || []
+    );
+
+    const totalUnits = allUnits.filter((unit: any) => !unit?.isArchived).length;
+    const occupiedUnits = allUnits.filter((unit: any) => !unit?.isArchived && unit?.status === 'occupied').length;
+    const vacantUnits = allUnits.filter((unit: any) => !unit?.isArchived && unit?.status === 'vacant').length;
+    const expectedRent = allUnits
+      .filter((unit: any) => !unit?.isArchived && unit?.status === 'occupied')
+      .reduce((sum: number, unit: any) => sum + Number(unit?.monthlyRent || 0), 0);
+
+    const monthRentRecords = allRentRecords.filter(
+      (record: any) => Number(record?.month) === scopeMonthNum && Number(record?.year) === scopeYear
+    );
+    const collectedRent = monthRentRecords.reduce((sum: number, record: any) => {
+      if (record?.status === 'paid') return sum + Number(record?.rentAmount || 0);
+      if (record?.status === 'partial') return sum + Number(record?.paidAmount || 0);
+      return sum;
+    }, 0);
+
+    const occupiedMap = new Map<string, number>();
+    allUnits
+      .filter((unit: any) => !unit?.isArchived && unit?.status === 'occupied')
+      .forEach((unit: any) => {
+        const key = String(unit?.propertyId?._id || unit?.propertyId || '');
+        occupiedMap.set(key, (occupiedMap.get(key) || 0) + 1);
+      });
+
+    const maintenanceExpected = scopedPropertyList.reduce((sum: number, property: any) => {
+      const occupiedCount = occupiedMap.get(String(property._id)) || 0;
+      return sum + occupiedCount * Number(property?.maintenanceCharge || 0);
+    }, 0);
+
+    const maintenanceCollected = allPayments
+      .filter((payment: any) => {
+        const paymentDate = new Date(payment?.date);
+        return (
+          payment?.type === 'maintenance' &&
+          String(payment?.notes || '').toLowerCase().includes('maintenance collected') &&
+          paymentDate >= monthStart &&
+          paymentDate <= monthEnd
+        );
+      })
+      .reduce((sum: number, payment: any) => sum + Number(payment?.amount || 0), 0);
+
+    const maintenanceSpent = allMaintenanceExpenses
+      .filter((expense: any) => {
+        const expenseDate = new Date(expense?.date);
+        return expenseDate >= monthStart && expenseDate <= monthEnd;
+      })
+      .reduce((sum: number, expense: any) => sum + Number(expense?.amount || 0), 0);
+
+    const monthElectricityBills = allUtilityBills.filter(
+      (bill: any) => bill?.billType === 'electricity' && String(bill?.month) === monthKey
+    );
+    const electricityTotal = monthElectricityBills.reduce((sum: number, bill: any) => sum + Number(bill?.amount || 0), 0);
+    const electricityUnpaid = monthElectricityBills
+      .filter((bill: any) => bill?.status === 'unpaid')
+      .reduce((sum: number, bill: any) => sum + Number(bill?.amount || 0), 0);
+    const electricityCollected = Math.max(0, electricityTotal - electricityUnpaid);
+
+    const activeTenants = allTenants.filter(
+      (tenant: any) =>
+        tenant?.isActive &&
+        scopedPropertyIds.has(String(tenant?.propertyId?._id || tenant?.propertyId || ''))
+    );
+    const depositRequired = activeTenants.reduce((sum: number, tenant: any) => sum + Number(tenant?.depositAmount || 0), 0);
+    const depositHeldByTenant = new Map<string, number>();
+    allPayments
+      .filter((payment: any) => ['deposit', 'refund'].includes(String(payment?.type || '')) && payment?.tenantId)
+      .forEach((payment: any) => {
+        const tenantKey = String(payment?.tenantId?._id || payment?.tenantId || '');
+        const currentHeld = depositHeldByTenant.get(tenantKey) || 0;
+        const nextHeld =
+          payment?.type === 'deposit'
+            ? currentHeld + Number(payment?.amount || 0)
+            : currentHeld - Number(payment?.amount || 0);
+        depositHeldByTenant.set(tenantKey, nextHeld);
+      });
+    const depositCollected = activeTenants.reduce(
+      (sum: number, tenant: any) => sum + Math.max(0, depositHeldByTenant.get(String(tenant?._id)) || 0),
+      0
+    );
+
+    const otherCashIntake = allPayments
+      .filter((payment: any) => {
+        const paymentDate = new Date(payment?.date);
+        return payment?.type === 'other' && paymentDate >= monthStart && paymentDate <= monthEnd;
+      })
+      .reduce((sum: number, payment: any) => sum + Number(payment?.amount || 0), 0);
+
+    const tenantNameById = new Map(
+      allTenants.map((tenant: any) => [String(tenant?._id), tenant?.fullName || 'Tenant'])
+    );
+    const unitNumberById = new Map(
+      allUnits.map((unit: any) => [String(unit?._id), unit?.unitNumber || '-'])
+    );
+    const pendingRentTenants = monthRentRecords
+      .filter((record: any) => ['unpaid', 'partial'].includes(String(record?.status || '')))
+      .slice(0, 10)
+      .map((record: any) => ({
+        ...record,
+        tenantId:
+          typeof record?.tenantId === 'object'
+            ? record.tenantId
+            : {
+                _id: record?.tenantId,
+                fullName: tenantNameById.get(String(record?.tenantId)) || 'Tenant'
+              },
+        unitId:
+          typeof record?.unitId === 'object'
+            ? record.unitId
+            : {
+                _id: record?.unitId,
+                unitNumber: unitNumberById.get(String(record?.unitId)) || '-'
+              }
+      }));
+
+    return {
+      totals: {
+        totalProperties: scopedPropertyList.length,
+        totalUnits,
+        occupiedUnits,
+        vacantUnits,
+        monthlyExpectedRent: expectedRent,
+        collectedRent,
+        pendingRent: Math.max(0, expectedRent - collectedRent),
+        monthlyMaintenanceExpected: maintenanceExpected,
+        monthlyMaintenanceCollected: maintenanceCollected,
+        monthlyMaintenancePending: Math.max(0, maintenanceExpected - maintenanceCollected),
+        monthlyMaintenance: maintenanceSpent,
+        monthlyElectricity: {
+          total: electricityTotal,
+          collected: electricityCollected,
+          unpaid: electricityUnpaid
+        },
+        depositRequired,
+        depositCollected,
+        depositPending: Math.max(0, depositRequired - depositCollected),
+        otherCashIntake
+      },
+      charts: { rentCollection: [], maintenanceExpenses: [] },
+      lists: { pendingRentTenants }
+    };
+  };
+
   const isScopeBundleLocallyAvailable = (scopePropertyId: string, scopeMonth: string, scopeProperties: any[]) => {
     const [scopeYearRaw, scopeMonthRaw] = scopeMonth.split('-').map(Number);
     const scopeYear = Number.isNaN(scopeYearRaw) ? year : scopeYearRaw;
     const scopeMonthNum = Number.isNaN(scopeMonthRaw) ? month : scopeMonthRaw;
 
-    const hasDashboard = hasCachedGet('/dashboard', {
-      month: scopeMonthNum,
-      year: scopeYear,
-      propertyId: scopePropertyId || undefined
-    });
-    if (!hasDashboard) {
-      return false;
-    }
-
     const scopedProperties = scopePropertyId
       ? scopeProperties.filter((property) => String(property._id) === String(scopePropertyId))
       : scopeProperties;
+
+    if (!scopedProperties.length) {
+      return true;
+    }
 
     return scopedProperties.every((property) => {
       const propertyKey = String(property._id);
@@ -576,12 +772,10 @@ const Dashboard = () => {
         hasCachedGet(`/properties/${propertyKey}/tenants`),
         hasCachedGet(`/properties/${propertyKey}/rent-records`),
         hasCachedGet(`/properties/${propertyKey}/utility-bills`),
-        hasCachedGet(`/properties/${propertyKey}/payments`)
+        hasCachedGet(`/properties/${propertyKey}/payments`),
+        hasCachedGet(`/properties/${propertyKey}/maintenance`),
+        hasCachedGet(`/properties/${propertyKey}/units`, { archived: false })
       ];
-
-      if (scopePropertyId) {
-        commonChecks.push(hasCachedGet(`/properties/${propertyKey}/units`, { archived: false }));
-      }
 
       return commonChecks.every(Boolean);
     });
@@ -600,54 +794,6 @@ const Dashboard = () => {
     setPaidDeposits(meta.paidDeposits || []);
   };
 
-  const getScopeStartMonth = (scopePropertyId: string, scopeProperties: any[]) => {
-    const scopedList = scopePropertyId
-      ? scopeProperties.filter((property) => property._id === scopePropertyId)
-      : scopeProperties;
-    const fallback = getMonthKey(year, month);
-    if (!scopedList.length) {
-      return fallback;
-    }
-    const earliestCreatedAt = scopedList.reduce((earliest, property) => {
-      const createdAt = property?.createdAt || property?.updatedAt;
-      if (!createdAt) return earliest;
-      const candidate = new Date(createdAt);
-      if (Number.isNaN(candidate.getTime())) return earliest;
-      return !earliest || candidate < earliest ? candidate : earliest;
-    }, null as Date | null);
-    if (!earliestCreatedAt) {
-      return fallback;
-    }
-    return getMonthKey(earliestCreatedAt.getFullYear(), earliestCreatedAt.getMonth() + 1);
-  };
-
-  const getScopePrefetchPlan = (scopePropertyId: string, scopeMonth: string, scopeProperties: any[]) => {
-    const earliestMonth = getScopeStartMonth(scopePropertyId, scopeProperties);
-    const blockingStart = compareMonthKeys(shiftMonthValue(scopeMonth, -BLOCKING_PAST_MONTHS), earliestMonth) < 0
-      ? earliestMonth
-      : shiftMonthValue(scopeMonth, -BLOCKING_PAST_MONTHS);
-    const blockingEnd = shiftMonthValue(scopeMonth, BLOCKING_FUTURE_MONTHS);
-    const backgroundPastStart = compareMonthKeys(
-      shiftMonthValue(blockingStart, -BACKGROUND_PAST_MONTHS),
-      earliestMonth
-    ) < 0
-      ? earliestMonth
-      : shiftMonthValue(blockingStart, -BACKGROUND_PAST_MONTHS);
-    const backgroundPastEnd = compareMonthKeys(backgroundPastStart, blockingStart) < 0
-      ? shiftMonthValue(blockingStart, -1)
-      : null;
-    const backgroundFutureStart = shiftMonthValue(blockingEnd, 1);
-    const backgroundFutureEnd = shiftMonthValue(blockingEnd, BACKGROUND_FUTURE_MONTHS);
-
-    return {
-      blockingMonths: getMonthRange(blockingStart, blockingEnd),
-      backgroundMonths: [
-        ...(backgroundPastEnd ? getMonthRange(backgroundPastStart, backgroundPastEnd) : []),
-        ...getMonthRange(backgroundFutureStart, backgroundFutureEnd)
-      ]
-    };
-  };
-
   useEffect(() => {
     if (dashboardSessionCache.propertiesLoaded) {
       setProperties(dashboardSessionCache.properties);
@@ -657,7 +803,7 @@ const Dashboard = () => {
 
     const loadProperties = async () => {
       try {
-        const response = await cachedGet('/properties');
+        const response = await api.get('/properties');
         const list = response.data || [];
         dashboardSessionCache.properties = list;
         dashboardSessionCache.propertiesLoaded = true;
@@ -691,17 +837,6 @@ const Dashboard = () => {
     const scopeMonth = getMonthKey(year, month);
     const scopePropertyId = propertyId || '';
     const scopedProperties = properties;
-    const plan = getScopePrefetchPlan(scopePropertyId, scopeMonth, scopedProperties);
-    const blockingMonths = plan.blockingMonths.filter(
-      (targetMonth) =>
-        !bundleCacheRef.current.has(getScopeKey(scopePropertyId, targetMonth)) &&
-        !isScopeBundleLocallyAvailable(scopePropertyId, targetMonth, scopedProperties)
-    );
-    const backgroundMonths = plan.backgroundMonths.filter(
-      (targetMonth) =>
-        !bundleCacheRef.current.has(getScopeKey(scopePropertyId, targetMonth)) &&
-        !isScopeBundleLocallyAvailable(scopePropertyId, targetMonth, scopedProperties)
-    );
     let cancelled = false;
     const sessionId = Date.now();
     const finishLoading = async (startedAt: number) => {
@@ -735,23 +870,12 @@ const Dashboard = () => {
     const loadDashboardScope = async () => {
       try {
         const currentCacheKey = getScopeKey(scopePropertyId, scopeMonth);
+        const currentMonthInMemory = bundleCacheRef.current.has(currentCacheKey);
         const currentMonthCached =
-          bundleCacheRef.current.has(currentCacheKey) ||
+          currentMonthInMemory ||
           isScopeBundleLocallyAvailable(scopePropertyId, scopeMonth, scopedProperties);
-        const shouldShowLoader = !currentMonthCached || blockingMonths.length > 0;
-        const backgroundMonthsToPrefetch = backgroundMonths;
+        const shouldShowLoader = !currentMonthCached;
         const startedAt = Date.now();
-
-        const runBackgroundPrefetch = async (monthsToLoad: string[]) => {
-          if (!monthsToLoad.length) return;
-          const chunkSize = 4;
-          for (let index = 0; index < monthsToLoad.length; index += chunkSize) {
-            const chunk = monthsToLoad.slice(index, index + chunkSize);
-            await Promise.allSettled(
-              chunk.map((targetMonth) => fetchScopeBundle(scopePropertyId, targetMonth, scopedProperties))
-            );
-          }
-        };
 
         if (shouldShowLoader) {
           loadingSessionRef.current = sessionId;
@@ -760,7 +884,7 @@ const Dashboard = () => {
           setLoading(true);
         }
 
-        const currentBundle = currentMonthCached
+        const currentBundle = currentMonthInMemory
           ? bundleCacheRef.current.get(currentCacheKey)
           : await fetchScopeBundle(scopePropertyId, scopeMonth, scopedProperties);
         if (cancelled) return;
@@ -770,20 +894,7 @@ const Dashboard = () => {
         if (!shouldShowLoader) {
           setLoading(false);
           setLoadingProgress(100);
-          void runBackgroundPrefetch(backgroundMonthsToPrefetch);
           return;
-        }
-
-        const secondaryBlockingMonths = blockingMonths.filter((targetMonth) => targetMonth !== scopeMonth);
-        if (secondaryBlockingMonths.length) {
-          setLoadingProgress(46);
-          setLoadingMessage('Loading units...');
-          await Promise.allSettled(
-            secondaryBlockingMonths.map((targetMonth) =>
-              fetchScopeBundle(scopePropertyId, targetMonth, scopedProperties)
-            )
-          );
-          if (cancelled || loadingSessionRef.current !== sessionId) return;
         }
 
         setLoadingProgress(68);
@@ -793,7 +904,6 @@ const Dashboard = () => {
         setLoadingProgress(88);
         setLoadingMessage('Loading remaining metadata...');
         await finishLoading(startedAt);
-        void runBackgroundPrefetch(backgroundMonthsToPrefetch);
       } catch {
         if (cancelled) return;
         setLoading(false);

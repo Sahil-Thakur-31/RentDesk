@@ -12,31 +12,6 @@ const getBootstrapContext = () => {
   return `${token}::${activePortfolioId}`;
 };
 
-const monthKey = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
-
-const shiftMonthKey = (value: string, delta: number) => {
-  const [yearRaw, monthRaw] = value.split('-').map(Number);
-  const base = new Date(yearRaw, (monthRaw || 1) - 1, 1);
-  base.setMonth(base.getMonth() + delta);
-  return monthKey(base.getFullYear(), base.getMonth() + 1);
-};
-
-const compareMonthKeys = (left: string, right: string) => {
-  const [leftYear, leftMonth] = left.split('-').map(Number);
-  const [rightYear, rightMonth] = right.split('-').map(Number);
-  return leftYear * 12 + leftMonth - (rightYear * 12 + rightMonth);
-};
-
-const getMonthRange = (start: string, end: string) => {
-  const months: string[] = [];
-  let cursor = start;
-  while (compareMonthKeys(cursor, end) <= 0) {
-    months.push(cursor);
-    cursor = shiftMonthKey(cursor, 1);
-  }
-  return months;
-};
-
 const runInBatches = async (tasks: Array<() => Promise<unknown>>, batchSize = 6) => {
   for (let index = 0; index < tasks.length; index += batchSize) {
     const batch = tasks.slice(index, index + batchSize);
@@ -72,32 +47,14 @@ export const preloadUserData = async (api: AxiosInstance) => {
     const now = new Date();
     const currentMonth = now.getMonth() + 1;
     const currentYear = now.getFullYear();
-    const currentMonthKey = monthKey(currentYear, currentMonth);
-    const earliestCreatedAt = properties.reduce((earliest, property: any) => {
-      const createdAt = property?.createdAt || property?.updatedAt;
-      if (!createdAt) return earliest;
-      const parsed = new Date(createdAt);
-      if (Number.isNaN(parsed.getTime())) return earliest;
-      return !earliest || parsed < earliest ? parsed : earliest;
-    }, null as Date | null);
-    const earliestMonthKey = earliestCreatedAt
-      ? monthKey(earliestCreatedAt.getFullYear(), earliestCreatedAt.getMonth() + 1)
-      : currentMonthKey;
-    const dashboardMonths = getMonthRange(earliestMonthKey, shiftMonthKey(currentMonthKey, 12));
 
     await Promise.allSettled([
       api.get('/portfolio/list'),
       api.get('/portfolio'),
-      ...dashboardMonths.map((targetMonth) => {
-        const [year, month] = targetMonth.split('-').map(Number);
-        return api.get('/dashboard', { params: { month, year } });
-      }),
-      ...properties.flatMap((property: any) =>
-        dashboardMonths.map((targetMonth) => {
-          const [year, month] = targetMonth.split('-').map(Number);
-          return api.get('/dashboard', {
-            params: { month, year, propertyId: property._id }
-          });
+      api.get('/dashboard', { params: { month: currentMonth, year: currentYear } }),
+      ...properties.map((property: any) =>
+        api.get('/dashboard', {
+          params: { month: currentMonth, year: currentYear, propertyId: property._id }
         })
       )
     ]);

@@ -1,0 +1,158 @@
+import { useCallback, useEffect, useState, type ReactElement } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import Sidebar from './components/Sidebar';
+import Dashboard from './pages/Dashboard';
+import Properties from './pages/Properties';
+import PropertyDetails from './pages/PropertyDetails';
+import UnitDetails from './pages/UnitDetails';
+import TenantDetails from './pages/TenantDetails';
+import Units from './pages/Units';
+import Tenants from './pages/Tenants';
+import RentRecords from './pages/RentRecords';
+import UtilityBills from './pages/UtilityBills';
+import Maintenance from './pages/Maintenance';
+import Reports from './pages/Reports';
+import Login from './pages/Login';
+import Notifications from './pages/Notifications';
+import Settings from './pages/Settings';
+import Profile from './pages/Profile';
+import Calendar from './pages/Calendar';
+import TopBar from './components/TopBar';
+import Transactions from './pages/Transactions';
+import Utilities from './pages/Utilities';
+import ElectricityReadings from './pages/ElectricityReadings';
+import api from './lib/api';
+import { appStorage } from './lib/appStorage';
+import { preloadUserData } from './lib/offlineBootstrap';
+import PortfolioOnboarding from './components/PortfolioOnboarding';
+import { I18nProvider, useI18n } from './lib/i18n';
+
+type AuthStatus = 'checking' | 'needs-portfolio' | 'hydrating' | 'authenticated' | 'unauthenticated';
+
+const RequireAuth = ({ children }: { children: ReactElement }) => {
+  const { t } = useI18n();
+  const token = appStorage.getItem('rentdesk_token');
+  const location = useLocation();
+  const [status, setStatus] = useState<AuthStatus>(token ? 'checking' : 'unauthenticated');
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  const verifySession = useCallback(async () => {
+    const currentToken = appStorage.getItem('rentdesk_token');
+    if (!currentToken) {
+      setStatus('unauthenticated');
+      setCurrentUser(null);
+      appStorage.removeItem('rentdesk_active_portfolio_id');
+      return;
+    }
+
+    try {
+      setStatus('checking');
+      const [meRes, portfolioListRes] = await Promise.all([api.get('/auth/me'), api.get('/portfolio/list')]);
+      const user = meRes.data?.user || null;
+      const portfolios = portfolioListRes.data?.portfolios || [];
+      const activePortfolioId = String(portfolioListRes.data?.activePortfolioId || '');
+      setCurrentUser(user);
+
+      if (activePortfolioId) {
+        appStorage.setItem('rentdesk_active_portfolio_id', activePortfolioId);
+      } else {
+        appStorage.removeItem('rentdesk_active_portfolio_id');
+      }
+
+      if (!portfolios.length) {
+        setStatus('needs-portfolio');
+        return;
+      }
+
+      setStatus('hydrating');
+      await preloadUserData(api);
+      setStatus('authenticated');
+    } catch {
+      appStorage.removeItem('rentdesk_token');
+      appStorage.removeItem('rentdesk_active_portfolio_id');
+      setCurrentUser(null);
+      setStatus('unauthenticated');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!token) {
+      setStatus('unauthenticated');
+      setCurrentUser(null);
+      return;
+    }
+
+    void verifySession();
+  }, [token, verifySession]);
+
+  if (!token || status === 'unauthenticated') {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (status === 'checking' || status === 'hydrating') {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[var(--bg)] text-[var(--muted)] text-sm">
+        {status === 'checking' ? t('Checking session...') : t('Preparing local data...')}
+      </div>
+    );
+  }
+
+  if (status === 'needs-portfolio') {
+    return <PortfolioOnboarding user={currentUser} onReady={verifySession} />;
+  }
+
+  return children;
+};
+
+const App = () => {
+  return (
+    <I18nProvider>
+      <div className="h-screen overflow-hidden bg-[var(--bg)] text-[var(--text)]">
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/*"
+            element={
+              <RequireAuth>
+                <div className="flex h-full">
+                  <Sidebar />
+                  <main className="flex-1 min-w-0 h-full overflow-hidden px-10 pt-8 pb-6">
+                    <div className="mx-auto flex h-full w-full max-w-6xl flex-col overflow-hidden">
+                      <div className="shrink-0">
+                        <TopBar />
+                      </div>
+                      <div className="flex-1 overflow-y-auto pr-2">
+                        <Routes>
+                          <Route path="/" element={<Dashboard />} />
+                          <Route path="/properties" element={<Properties />} />
+                          <Route path="/properties/:propertyId" element={<PropertyDetails />} />
+                          <Route path="/properties/:propertyId/units/:unitId" element={<UnitDetails />} />
+                          <Route path="/properties/:propertyId/tenants/:tenantId" element={<TenantDetails />} />
+                          <Route path="/units" element={<Units />} />
+                          <Route path="/tenants" element={<Tenants />} />
+                          <Route path="/rent-records" element={<RentRecords />} />
+                          <Route path="/utility-bills" element={<UtilityBills />} />
+                          <Route path="/maintenance" element={<Maintenance />} />
+                          <Route path="/transactions" element={<Transactions />} />
+                          <Route path="/utilities" element={<Utilities />} />
+                          <Route path="/utilities/electricity-readings" element={<ElectricityReadings />} />
+                          <Route path="/reports" element={<Reports />} />
+                          <Route path="/notifications" element={<Notifications />} />
+                          <Route path="/profile" element={<Profile />} />
+                          <Route path="/calendar" element={<Calendar />} />
+                          <Route path="/settings" element={<Settings />} />
+                        </Routes>
+                      </div>
+                    </div>
+                  </main>
+                </div>
+              </RequireAuth>
+            }
+          />
+        </Routes>
+      </div>
+    </I18nProvider>
+  );
+};
+
+export default App;

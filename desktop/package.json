@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "build": "vite build",
+    "build:backend": "npm --prefix ../backend run build",
     "preview": "vite preview",
-    "dist": "vite build && electron-builder --win nsis"
+    "dist": "npm run build && npm run build:backend && electron-builder --win nsis"
   },
   "dependencies": {
     "axios": "^1.13.6",
@@ -42,8 +43,27 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*",
+      "electron/main.js",
+      "electron/preload.js",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist",
+        "to": "backend/dist"
+      },
+      {
+        "from": "../backend/node_modules",
+        "to": "backend/node_modules"
+      },
+      {
+        "from": "../backend/package.json",
+        "to": "backend/package.json"
+      },
+      {
+        "from": "../backend/.env",
+        "to": "backend/.env"
+      }
     ],
     "win": {
       "target": "nsis"

@@ -3,8 +3,15 @@ import { useNavigate, useParams } from 'react-router-dom';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
 import DepositPaymentModal from '../components/DepositPaymentModal';
+import Badge, { type BadgeTone } from '../components/Badge';
 import { formatDate, formatMonthYear } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
+
+const paymentStatusTone = (status: string): BadgeTone => {
+  if (status === 'paid') return 'success';
+  if (status === 'partial') return 'warning';
+  return 'danger';
+};
 
 const paymentFilterOptions = [
   { value: 'all', label: 'All Payments' },
@@ -106,7 +113,7 @@ const TenantDetails = () => {
         <StatCard label="Deposit" value={`₹${tenant.depositAmount || 0}`} />
         <StatCard label="Deposit Paid" value={`\u20B9${depositPaid}`} />
         <StatCard label="Deposit Remaining" value={`\u20B9${depositRemaining}`} />
-        <StatCard label="Status" value={tenant.isActive ? 'Active' : 'Moved Out'} />
+        <StatCard label="Status" value={tenant.isActive ? 'Active' : 'Moved Out'} tone={tenant.isActive ? 'success' : 'default'} />
       </div>
 
       {tenant.isActive && depositRemaining > 0 && (
@@ -196,7 +203,9 @@ const TenantDetails = () => {
                   {formatMonthYear(record.month, record.year)}
                 </td>
                 <td className="px-6 py-3">₹{record.rentAmount}</td>
-                <td className="px-6 py-3">{record.status}</td>
+                <td className="px-6 py-3">
+                  <Badge tone={paymentStatusTone(record.status)}>{record.status}</Badge>
+                </td>
               </tr>
             ))}
           </tbody>

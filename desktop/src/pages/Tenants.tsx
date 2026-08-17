@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import TenantFormModal from '../components/TenantFormModal';
+import Badge from '../components/Badge';
 import { useDataVersion } from '../lib/dataSync';
 
 const Tenants = () => {
@@ -168,7 +169,11 @@ const Tenants = () => {
                 <td className="px-4 py-3">{tenant.fullName}</td>
                 <td className="px-4 py-3">{tenant.phone}</td>
                 <td className="px-4 py-3">{tenant.assignedUnit?.unitNumber || '-'}</td>
-                <td className="px-4 py-3">{tenant.isActive ? 'Active' : 'Moved Out'}</td>
+                <td className="px-4 py-3">
+                  <Badge tone={tenant.isActive ? 'success' : 'neutral'}>
+                    {tenant.isActive ? 'Active' : 'Moved Out'}
+                  </Badge>
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <button

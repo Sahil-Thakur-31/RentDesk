@@ -111,7 +111,7 @@ const Calendar = () => {
 
         const eventBuckets = await Promise.all(
           activeProperties.map(async (property) => {
-            const [rentRes, utilityRes, maintenanceRes, paymentRes, tenantRes] = await Promise.all([
+            const [rentRes, utilityRes, maintenanceRes, tenantRes, paymentRes] = await Promise.all([
               api.get(`/properties/${property._id}/rent-records?month=${month}&year=${year}&status=unpaid,partial`),
               api.get(`/properties/${property._id}/utility-bills?month=${monthValue}&status=unpaid,partial`),
               api.get(`/properties/${property._id}/maintenance`),

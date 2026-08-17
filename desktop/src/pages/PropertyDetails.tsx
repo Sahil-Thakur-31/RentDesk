@@ -386,7 +386,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Property Name</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Property name"
                     value={editForm.name}
                     onChange={(e) => updateEditField('name', e.target.value)}
@@ -396,7 +396,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Property Type</label>
                   <select
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     value={editForm.propertyType}
                     onChange={(e) => updateEditField('propertyType', e.target.value)}
                   >
@@ -410,7 +410,7 @@ const PropertyDetails = () => {
                 <div className="md:col-span-2">
                   <label className="text-xs text-[var(--muted)]">Address</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Address"
                     value={editForm.address}
                     onChange={(e) => updateEditField('address', e.target.value)}
@@ -420,7 +420,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">City</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="City"
                     value={editForm.city}
                     onChange={(e) => updateEditField('city', e.target.value)}
@@ -430,7 +430,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">State</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="State"
                     value={editForm.state}
                     onChange={(e) => updateEditField('state', e.target.value)}
@@ -440,7 +440,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Pincode</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Pincode"
                     value={editForm.pincode}
                     onChange={(e) => updateEditField('pincode', e.target.value)}
@@ -450,7 +450,7 @@ const PropertyDetails = () => {
                 <div className="md:col-span-2">
                   <label className="text-xs text-[var(--muted)]">Notes (Optional)</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Notes"
                     value={editForm.notes}
                     onChange={(e) => updateEditField('notes', e.target.value)}
@@ -459,7 +459,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Maintenance Charge (Monthly)</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Maintenance charge"
                     value={editForm.maintenanceCharge}
                     onChange={(e) => updateEditField('maintenanceCharge', e.target.value)}
@@ -468,7 +468,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Electricity Unit Rate</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Rate per unit"
                     value={editForm.electricityUnitRate}
                     onChange={(e) => updateEditField('electricityUnitRate', e.target.value)}
@@ -477,7 +477,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Common Electricity Charge</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Common charge"
                     value={editForm.commonElectricityCharge}
                     onChange={(e) => updateEditField('commonElectricityCharge', e.target.value)}
@@ -520,7 +520,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Unit Number</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Unit number"
                     value={unitForm.unitNumber}
                     onChange={(e) => updateUnitField('unitNumber', e.target.value)}
@@ -530,7 +530,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Unit Type</label>
                   <select
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     value={unitForm.unitType}
                     onChange={(e) => updateUnitField('unitType', e.target.value)}
                   >
@@ -544,7 +544,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Floor</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Floor"
                     value={unitForm.floor}
                     onChange={(e) => updateUnitField('floor', e.target.value)}
@@ -553,7 +553,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Size (Optional)</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Size"
                     value={unitForm.size}
                     onChange={(e) => updateUnitField('size', e.target.value)}
@@ -562,7 +562,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Monthly Rent</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Monthly rent"
                     value={unitForm.monthlyRent}
                     onChange={(e) => updateUnitField('monthlyRent', e.target.value)}
@@ -572,7 +572,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Deposit</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Deposit"
                     value={unitForm.deposit}
                     onChange={(e) => updateUnitField('deposit', e.target.value)}
@@ -582,7 +582,7 @@ const PropertyDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Last Meter Reading</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Meter reading"
                     value={unitForm.lastMeterReading}
                     onChange={(e) => updateUnitField('lastMeterReading', e.target.value)}

@@ -126,7 +126,7 @@ const TenantFormModal = ({
             <div>
               <label className="text-xs text-[var(--muted)]">Full Name</label>
               <input
-                className="px-3 py-2 mt-1"
+                className="w-full px-3 py-2 mt-1"
                 placeholder="Full name"
                 value={form.fullName}
                 onChange={(e) => updateField('fullName', e.target.value)}
@@ -164,7 +164,7 @@ const TenantFormModal = ({
             <div>
               <label className="text-xs text-[var(--muted)]">Phone</label>
               <input
-                className="px-3 py-2 mt-1"
+                className="w-full px-3 py-2 mt-1"
                 placeholder="Phone"
                 value={form.phone}
                 onChange={(e) => updateField('phone', e.target.value)}
@@ -174,7 +174,7 @@ const TenantFormModal = ({
             <div>
               <label className="text-xs text-[var(--muted)]">Email (Optional)</label>
               <input
-                className="px-3 py-2 mt-1"
+                className="w-full px-3 py-2 mt-1"
                 placeholder="Email"
                 value={form.email}
                 onChange={(e) => updateField('email', e.target.value)}
@@ -183,7 +183,7 @@ const TenantFormModal = ({
             <div>
               <label className="text-xs text-[var(--muted)]">Emergency Contact (Optional)</label>
               <input
-                className="px-3 py-2 mt-1"
+                className="w-full px-3 py-2 mt-1"
                 placeholder="Emergency contact"
                 value={form.emergencyContact}
                 onChange={(e) => updateField('emergencyContact', e.target.value)}
@@ -192,7 +192,7 @@ const TenantFormModal = ({
             <div>
               <label className="text-xs text-[var(--muted)]">ID Proof Type (Optional)</label>
               <input
-                className="px-3 py-2 mt-1"
+                className="w-full px-3 py-2 mt-1"
                 placeholder="ID proof type"
                 value={form.idProofType}
                 onChange={(e) => updateField('idProofType', e.target.value)}
@@ -201,7 +201,7 @@ const TenantFormModal = ({
             <div>
               <label className="text-xs text-[var(--muted)]">ID Proof Number (Optional)</label>
               <input
-                className="px-3 py-2 mt-1"
+                className="w-full px-3 py-2 mt-1"
                 placeholder="ID proof number"
                 value={form.idProofNumber}
                 onChange={(e) => updateField('idProofNumber', e.target.value)}
@@ -210,7 +210,7 @@ const TenantFormModal = ({
             <div>
               <label className="text-xs text-[var(--muted)]">Deposit Paid Now (Optional)</label>
               <input
-                className="px-3 py-2 mt-1"
+                className="w-full px-3 py-2 mt-1"
                 placeholder="How much deposit was received now?"
                 value={form.depositPaid}
                 onChange={(e) => updateField('depositPaid', e.target.value)}
@@ -219,7 +219,7 @@ const TenantFormModal = ({
           {assignedUnitId ? (
             <div>
               <label className="text-xs text-[var(--muted)]">Assigned Unit</label>
-              <div className="px-3 py-2 mt-1 bg-black/5 rounded-lg text-sm">
+              <div className="w-full px-3 py-2 mt-1 bg-black/5 rounded-lg text-sm">
                 {assignedUnitLabel || assignedUnitId}
               </div>
             </div>
@@ -227,7 +227,7 @@ const TenantFormModal = ({
               <div>
                 <label className="text-xs text-[var(--muted)]">Assigned Unit</label>
                 <select
-                  className="px-3 py-2 mt-1"
+                  className="w-full px-3 py-2 mt-1"
                   value={form.assignedUnit}
                   onChange={(e) => updateField('assignedUnit', e.target.value)}
                   required

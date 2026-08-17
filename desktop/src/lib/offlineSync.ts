@@ -188,6 +188,12 @@ export const getCachedResponse = (config: AxiosRequestConfig) => {
     return units.filter((unit: any) => Boolean(unit.isArchived) === wantArchived);
   }
 
+  if (/\/properties\/[^/]+\/maintenance$/.test(pathname)) {
+    const records = getBaseData(pathname);
+    if (!Array.isArray(records)) return undefined;
+    return records;
+  }
+
   if (/\/properties\/[^/]+\/tenants$/.test(pathname)) {
     const tenants = getBaseData(pathname);
     if (!Array.isArray(tenants)) return undefined;

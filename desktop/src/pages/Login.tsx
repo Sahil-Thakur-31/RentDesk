@@ -7,6 +7,28 @@ import { useI18n } from '../lib/i18n';
 type AuthMode = 'login' | 'register';
 type ForgotStep = 'request' | 'reset';
 
+const PasswordToggleButton = ({ visible, onClick }: { visible: boolean; onClick: () => void }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    tabIndex={-1}
+    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)]"
+    aria-label={visible ? 'Hide password' : 'Show password'}
+  >
+    {visible ? (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.06 21.06 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.05 21.05 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+        <line x1="1" y1="1" x2="23" y2="23" />
+      </svg>
+    ) : (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    )}
+  </button>
+);
+
 const Login = () => {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -17,6 +39,9 @@ const Login = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [forgotStep, setForgotStep] = useState<ForgotStep>('request');
   const [forgotEmail, setForgotEmail] = useState('');
@@ -170,26 +195,32 @@ const Login = () => {
         />
 
         <label className="block text-sm font-medium mb-1">{t('Password')}</label>
-        <input
-          className="w-full border border-black/10 rounded-lg px-3 py-2 mb-4"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          type="password"
-          minLength={6}
-          required
-        />
+        <div className="relative mb-4">
+          <input
+            className="w-full border border-black/10 rounded-lg px-3 py-2 pr-10"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type={showPassword ? 'text' : 'password'}
+            minLength={6}
+            required
+          />
+          <PasswordToggleButton visible={showPassword} onClick={() => setShowPassword((v) => !v)} />
+        </div>
 
         {mode === 'register' && (
           <>
             <label className="block text-sm font-medium mb-1">{t('Confirm Password')}</label>
-            <input
-              className="w-full border border-black/10 rounded-lg px-3 py-2 mb-4"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              type="password"
-              minLength={6}
-              required
-            />
+            <div className="relative mb-4">
+              <input
+                className="w-full border border-black/10 rounded-lg px-3 py-2 pr-10"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                type={showConfirmPassword ? 'text' : 'password'}
+                minLength={6}
+                required
+              />
+              <PasswordToggleButton visible={showConfirmPassword} onClick={() => setShowConfirmPassword((v) => !v)} />
+            </div>
           </>
         )}
 
@@ -299,14 +330,17 @@ const Login = () => {
                   required
                 />
                 <label className="block text-sm font-medium mb-1">{t('New Password')}</label>
-                <input
-                  className="w-full border border-black/10 rounded-lg px-3 py-2 mb-4"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  type="password"
-                  minLength={6}
-                  required
-                />
+                <div className="relative mb-4">
+                  <input
+                    className="w-full border border-black/10 rounded-lg px-3 py-2 pr-10"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    type={showNewPassword ? 'text' : 'password'}
+                    minLength={6}
+                    required
+                  />
+                  <PasswordToggleButton visible={showNewPassword} onClick={() => setShowNewPassword((v) => !v)} />
+                </div>
                 {forgotError && <div className="text-sm text-[var(--danger)] mb-3">{forgotError}</div>}
                 {forgotMessage && <div className="text-sm text-[var(--accent)] mb-3">{forgotMessage}</div>}
                 <div className="flex gap-3">

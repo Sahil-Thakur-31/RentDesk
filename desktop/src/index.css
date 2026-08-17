@@ -47,6 +47,10 @@
     font-family: 'Space Grotesk', system-ui, sans-serif;
   }
 
+  label {
+    display: block;
+  }
+
   input, select, textarea {
     border-radius: 0.75rem;
     border: 1px solid rgba(15, 23, 42, 0.08);

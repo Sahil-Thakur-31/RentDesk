@@ -2,16 +2,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
+import Badge, { type BadgeTone } from '../components/Badge';
 import { formatDate, formatMonthKey, formatMonthYear, getCurrentDateValue, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
 
 type TabKey = 'all' | 'rent' | 'electricity' | 'maintenance' | 'deposit' | 'others';
 type MaintenanceView = 'collected' | 'spent';
 
-const statusColor = (status: string) => {
-  if (status === 'paid') return 'text-[var(--success)]';
-  if (status === 'partial') return 'text-[var(--warning)]';
-  return 'text-[var(--danger)]';
+const statusTone = (status: string): BadgeTone => {
+  if (status === 'paid') return 'success';
+  if (status === 'partial') return 'warning';
+  return 'danger';
 };
 
 const getPropertyName = (item: any, properties: any[], propertyId: string) =>
@@ -702,7 +703,9 @@ const Transactions = () => {
                   <td className="px-4 py-3">{item.details}</td>
                   <td className="px-4 py-3">{`\u20B9${item.amount}`}</td>
                   <td className="px-4 py-3">{formatDate(item.date)}</td>
-                  <td className={`px-4 py-3 ${statusColor(item.status)}`}>{item.status}</td>
+                  <td className="px-4 py-3">
+                    <Badge tone={statusTone(item.status)}>{item.status}</Badge>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -734,7 +737,9 @@ const Transactions = () => {
                   <td className="px-4 py-3">{formatMonthYear(record.month, record.year)}</td>
                   <td className="px-4 py-3">{`\u20B9${record.paidAmount || 0} / \u20B9${record.rentAmount}`}</td>
                   <td className="px-4 py-3">{`\u20B9${Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0))}`}</td>
-                  <td className={`px-4 py-3 ${statusColor(record.status)}`}>{record.status}</td>
+                  <td className="px-4 py-3">
+                    <Badge tone={statusTone(record.status)}>{record.status}</Badge>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -764,7 +769,9 @@ const Transactions = () => {
                   <td className="px-4 py-3">{formatMonthKey(bill.month)}</td>
                   <td className="px-4 py-3">{bill.unitsConsumed}</td>
                   <td className="px-4 py-3">₹{bill.amount}</td>
-                  <td className={`px-4 py-3 ${statusColor(bill.status)}`}>{bill.status}</td>
+                  <td className="px-4 py-3">
+                    <Badge tone={statusTone(bill.status)}>{bill.status}</Badge>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -940,7 +947,7 @@ const Transactions = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Payment Type</label>
                   <select
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     value={addType}
                     onChange={(e) => setAddType(e.target.value as typeof addType)}
                   >
@@ -954,7 +961,7 @@ const Transactions = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Property</label>
                   <select
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     value={formPropertyId}
                     onChange={(e) => setFormPropertyId(e.target.value)}
                     required
@@ -974,7 +981,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Tenant</label>
                     <select
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={rentForm.tenantId}
                       onChange={(e) => setRentForm((prev) => ({ ...prev, tenantId: e.target.value }))}
                       required
@@ -991,7 +998,7 @@ const Transactions = () => {
                     <label className="text-xs text-[var(--muted)]">Month</label>
                     <input
                       type="month"
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={rentForm.month}
                       onChange={(e) => setRentForm((prev) => ({ ...prev, month: e.target.value }))}
                       required
@@ -1000,7 +1007,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Amount Received</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={rentForm.amount}
                       onChange={(e) => setRentForm((prev) => ({ ...prev, amount: e.target.value }))}
                       placeholder="Rent amount"
@@ -1013,7 +1020,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Payment Mode</label>
                     <select
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={rentForm.paymentMode}
                       onChange={(e) => setRentForm((prev) => ({ ...prev, paymentMode: e.target.value }))}
                     >
@@ -1031,7 +1038,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Unit</label>
                     <select
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={electricityForm.unitId}
                       onChange={(e) => setElectricityForm((prev) => ({ ...prev, unitId: e.target.value }))}
                       required
@@ -1048,7 +1055,7 @@ const Transactions = () => {
                     <label className="text-xs text-[var(--muted)]">Month</label>
                     <input
                       type="month"
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={electricityForm.month}
                       onChange={(e) => setElectricityForm((prev) => ({ ...prev, month: e.target.value }))}
                       required
@@ -1057,7 +1064,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Current Reading</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={electricityForm.currentReading}
                       onChange={(e) => setElectricityForm((prev) => ({ ...prev, currentReading: e.target.value }))}
                       placeholder="Current meter reading"
@@ -1070,7 +1077,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Status</label>
                     <select
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={electricityForm.status}
                       onChange={(e) => setElectricityForm((prev) => ({ ...prev, status: e.target.value }))}
                     >
@@ -1093,7 +1100,7 @@ const Transactions = () => {
                     <label className="text-xs text-[var(--muted)]">Date</label>
                     <input
                       type="date"
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={maintenanceForm.date}
                       onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, date: e.target.value }))}
                       required
@@ -1102,7 +1109,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Category</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={maintenanceForm.category}
                       onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, category: e.target.value }))}
                       placeholder="Repair, cleaning, plumbing..."
@@ -1112,7 +1119,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Amount</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={maintenanceForm.amount}
                       onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, amount: e.target.value }))}
                       placeholder="Expense amount"
@@ -1122,7 +1129,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Paid To</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={maintenanceForm.paidTo}
                       onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, paidTo: e.target.value }))}
                       placeholder="Vendor or person"
@@ -1131,7 +1138,7 @@ const Transactions = () => {
                   <div className="md:col-span-2">
                     <label className="text-xs text-[var(--muted)]">Description</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={maintenanceForm.description}
                       onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, description: e.target.value }))}
                       placeholder="Short note"
@@ -1145,7 +1152,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Tenant</label>
                     <select
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={depositForm.tenantId}
                       onChange={(e) => setDepositForm((prev) => ({ ...prev, tenantId: e.target.value }))}
                       required
@@ -1161,7 +1168,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Deposit Type</label>
                     <select
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={depositForm.type}
                       onChange={(e) => setDepositForm((prev) => ({ ...prev, type: e.target.value }))}
                     >
@@ -1172,7 +1179,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Amount</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={depositForm.amount}
                       onChange={(e) => setDepositForm((prev) => ({ ...prev, amount: e.target.value }))}
                       placeholder="Deposit amount"
@@ -1186,7 +1193,7 @@ const Transactions = () => {
                     <label className="text-xs text-[var(--muted)]">Date</label>
                     <input
                       type="date"
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={depositForm.date}
                       onChange={(e) => setDepositForm((prev) => ({ ...prev, date: e.target.value }))}
                       required
@@ -1195,7 +1202,7 @@ const Transactions = () => {
                   <div className="md:col-span-2">
                     <label className="text-xs text-[var(--muted)]">Notes</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={depositForm.notes}
                       onChange={(e) => setDepositForm((prev) => ({ ...prev, notes: e.target.value }))}
                       placeholder="Optional note"
@@ -1209,7 +1216,7 @@ const Transactions = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Amount</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={otherForm.amount}
                       onChange={(e) => setOtherForm((prev) => ({ ...prev, amount: e.target.value }))}
                       placeholder="Amount"
@@ -1220,7 +1227,7 @@ const Transactions = () => {
                     <label className="text-xs text-[var(--muted)]">Date</label>
                     <input
                       type="date"
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={otherForm.date}
                       onChange={(e) => setOtherForm((prev) => ({ ...prev, date: e.target.value }))}
                       required
@@ -1229,7 +1236,7 @@ const Transactions = () => {
                   <div className="md:col-span-2">
                     <label className="text-xs text-[var(--muted)]">Notes</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={otherForm.notes}
                       onChange={(e) => setOtherForm((prev) => ({ ...prev, notes: e.target.value }))}
                       placeholder="Describe this payment"

@@ -1,5 +1,13 @@
 import { useState } from 'react';
 import api from '../lib/api';
+import Badge, { type BadgeTone } from '../components/Badge';
+
+const roleTone = (role: string): BadgeTone => {
+  if (role === 'owner') return 'accent';
+  if (role === 'manager') return 'info';
+  if (role === 'accountant') return 'warning';
+  return 'neutral';
+};
 
 const Users = () => {
   const [query, setQuery] = useState('');
@@ -38,7 +46,9 @@ const Users = () => {
               <tr key={user._id} className="border-b border-black/5">
                 <td className="px-4 py-3">{user.fullName}</td>
                 <td className="px-4 py-3">{user.email}</td>
-                <td className="px-4 py-3">{user.role}</td>
+                <td className="px-4 py-3">
+                  <Badge tone={roleTone(user.role)}>{user.role}</Badge>
+                </td>
               </tr>
             ))}
           </tbody>

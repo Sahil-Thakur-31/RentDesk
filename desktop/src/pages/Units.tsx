@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import { useDataVersion } from '../lib/dataSync';
+import Badge, { type BadgeTone } from '../components/Badge';
 
 const unitTypeLabels: Record<string, string> = {
   single_room: 'Single Room',
@@ -20,6 +21,12 @@ const formatUnitStatus = (status: string) => {
   if (status === 'maintenance') return 'Under Repair';
   if (status === 'occupied') return 'Occupied';
   return 'Vacant';
+};
+
+const unitStatusTone = (status: string): BadgeTone => {
+  if (status === 'maintenance') return 'warning';
+  if (status === 'occupied') return 'success';
+  return 'neutral';
 };
 
 const Units = () => {
@@ -181,7 +188,9 @@ const Units = () => {
                 <td className="px-4 py-3">{unit.floor || '-'}</td>
                 <td className="px-4 py-3">{unit.lastMeterReading ?? 0}</td>
                 <td className="px-4 py-3">₹{unit.monthlyRent}</td>
-                <td className="px-4 py-3">{formatUnitStatus(unit.status)}</td>
+                <td className="px-4 py-3">
+                  <Badge tone={unitStatusTone(unit.status)}>{formatUnitStatus(unit.status)}</Badge>
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <button
@@ -242,7 +251,7 @@ const Units = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Unit Number</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Unit number"
                     value={unitForm.unitNumber}
                     onChange={(e) => updateUnitField('unitNumber', e.target.value)}
@@ -252,7 +261,7 @@ const Units = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Unit Type</label>
                   <select
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     value={unitForm.unitType}
                     onChange={(e) => updateUnitField('unitType', e.target.value)}
                   >
@@ -266,7 +275,7 @@ const Units = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Floor</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Floor"
                     value={unitForm.floor}
                     onChange={(e) => updateUnitField('floor', e.target.value)}
@@ -275,7 +284,7 @@ const Units = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Size (Optional)</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Size"
                     value={unitForm.size}
                     onChange={(e) => updateUnitField('size', e.target.value)}
@@ -284,7 +293,7 @@ const Units = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Monthly Rent</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Monthly rent"
                     value={unitForm.monthlyRent}
                     onChange={(e) => updateUnitField('monthlyRent', e.target.value)}
@@ -294,7 +303,7 @@ const Units = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Deposit</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Deposit"
                     value={unitForm.deposit}
                     onChange={(e) => updateUnitField('deposit', e.target.value)}
@@ -304,7 +313,7 @@ const Units = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Last Meter Reading</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Meter reading"
                     value={unitForm.lastMeterReading}
                     onChange={(e) => updateUnitField('lastMeterReading', e.target.value)}

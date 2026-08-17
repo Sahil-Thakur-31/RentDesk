@@ -984,13 +984,20 @@ const Dashboard = () => {
 
     const grandTotal = items.reduce((sum, item) => sum + item.total, 0);
     const grandCollected = items.reduce((sum, item) => sum + Math.min(item.collected, item.total), 0);
+    const remaining = Math.max(0, grandTotal - grandCollected);
 
     return {
-      items: items.map((item) => ({
-        ...item,
-        share: grandTotal ? (item.total / grandTotal) * 100 : 0,
-        fill: item.total ? Math.max(0, Math.min(100, (item.collected / item.total) * 100)) : 0
-      })),
+      items: items.map((item) => {
+        const collected = Math.min(item.collected, item.total);
+        return {
+          ...item,
+          collected,
+          share: grandTotal ? (collected / grandTotal) * 100 : 0,
+          collectedRate: item.total ? Math.min(100, (collected / item.total) * 100) : 0
+        };
+      }),
+      remaining,
+      remainingShare: grandTotal ? (remaining / grandTotal) * 100 : 0,
       grandTotal,
       grandCollected,
       overallRate: grandTotal ? Math.round((grandCollected / grandTotal) * 100) : 0
@@ -1339,16 +1346,23 @@ const Dashboard = () => {
             </div>
             <div className="h-5 rounded-full bg-[var(--surface-2)] overflow-hidden flex">
               {cashProgressSegments.items.length ? (
-                cashProgressSegments.items.map((item) => (
-                  <div
-                    key={item.label}
-                    className="h-full bg-black/5"
-                    style={{ width: `${item.share}%` }}
-                    title={`${item.label}: ${Math.round(item.fill)}%`}
-                  >
-                    <div className={`${item.color} h-full`} style={{ width: `${item.fill}%` }} />
-                  </div>
-                ))
+                <>
+                  {cashProgressSegments.items.map((item) => (
+                    <div
+                      key={item.label}
+                      className={`${item.color} h-full`}
+                      style={{ width: `${item.share}%` }}
+                      title={`${item.label}: ${'₹'}${Math.round(item.collected)} ${t('of')} ${'₹'}${Math.round(item.total)}`}
+                    />
+                  ))}
+                  {cashProgressSegments.remainingShare > 0 && (
+                    <div
+                      className="h-full bg-black/10"
+                      style={{ width: `${cashProgressSegments.remainingShare}%` }}
+                      title={`${t('Remaining')}: ${'₹'}${Math.round(cashProgressSegments.remaining)}`}
+                    />
+                  )}
+                </>
               ) : (
                 <div className="h-full w-full bg-[var(--surface-2)]" />
               )}
@@ -1359,16 +1373,36 @@ const Dashboard = () => {
                   <div
                     key={`${item.label}-legend`}
                     className="flex items-center justify-between rounded-xl border border-black/5 bg-[var(--surface-1)] px-3 py-2 text-xs"
+                    title={`${'₹'}${Math.round(item.collected)} ${t('of')} ${'₹'}${Math.round(item.total)}`}
                   >
                     <div className="flex items-center gap-2 text-[var(--muted)]">
                       <span className={`h-2.5 w-2.5 rounded-full ${item.color}`} />
                       <span>{item.label}</span>
                     </div>
-                    <div className="font-medium text-[var(--text)]">
-                      {Math.round(item.share)}% {t('of total')}
-                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                        item.collectedRate >= 100
+                          ? 'bg-emerald-50 text-emerald-600'
+                          : item.collectedRate > 0
+                            ? 'bg-amber-50 text-amber-600'
+                            : 'bg-black/5 text-[var(--muted)]'
+                      }`}
+                    >
+                      {Math.round(item.collectedRate)}% {t('collected')}
+                    </span>
                   </div>
                 ))}
+                {cashProgressSegments.remaining > 0 && (
+                  <div className="flex items-center justify-between rounded-xl border border-black/5 bg-[var(--surface-1)] px-3 py-2 text-xs">
+                    <div className="flex items-center gap-2 text-[var(--muted)]">
+                      <span className="h-2.5 w-2.5 rounded-full bg-black/20" />
+                      <span>{t('Remaining')}</span>
+                    </div>
+                    <div className="font-medium text-[var(--text)]">
+                      {'₹'}{Math.round(cashProgressSegments.remaining)} {t('pending')}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-xs text-[var(--muted)]">{t('No pending other payments.')}</div>
@@ -1377,11 +1411,11 @@ const Dashboard = () => {
         </div>
 
         <div className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
-          <div className="grid grid-cols-5 border-b border-black/5">
+          <div className="grid grid-cols-5 gap-1.5 p-1.5 border-b border-black/5">
             {nextActionTabs.map((item) => (
               <button
                 key={item.key}
-                className={`px-3 py-3 text-sm font-medium transition ${
+                className={`px-3 py-3 rounded-xl text-sm font-medium transition ${
                   nextActionTab === item.key
                     ? 'bg-[var(--accent)] text-white'
                     : 'bg-white text-[var(--muted)] hover:bg-[var(--surface-1)]'
@@ -2002,7 +2036,7 @@ const Dashboard = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Payment Type</label>
                     <select
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={otherForm.type}
                       onChange={(e) => setOtherForm((prev) => ({ ...prev, type: e.target.value }))}
                     >
@@ -2013,7 +2047,7 @@ const Dashboard = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Amount</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={otherForm.amount}
                       onChange={(e) => setOtherForm((prev) => ({ ...prev, amount: e.target.value }))}
                       required
@@ -2023,7 +2057,7 @@ const Dashboard = () => {
                     <label className="text-xs text-[var(--muted)]">Date</label>
                     <input
                       type="date"
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={otherForm.date}
                       onChange={(e) => setOtherForm((prev) => ({ ...prev, date: e.target.value }))}
                       required
@@ -2032,7 +2066,7 @@ const Dashboard = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Unit (Optional)</label>
                     <select
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={otherForm.unitId}
                       onChange={(e) => setOtherForm((prev) => ({ ...prev, unitId: e.target.value }))}
                     >
@@ -2047,7 +2081,7 @@ const Dashboard = () => {
                   <div>
                     <label className="text-xs text-[var(--muted)]">Tenant (Optional)</label>
                     <select
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={otherForm.tenantId}
                       onChange={(e) => setOtherForm((prev) => ({ ...prev, tenantId: e.target.value }))}
                     >
@@ -2062,7 +2096,7 @@ const Dashboard = () => {
                   <div className="md:col-span-2">
                     <label className="text-xs text-[var(--muted)]">Notes (Optional)</label>
                     <input
-                      className="px-3 py-2 mt-1"
+                      className="w-full px-3 py-2 mt-1"
                       value={otherForm.notes}
                       onChange={(e) => setOtherForm((prev) => ({ ...prev, notes: e.target.value }))}
                       placeholder="Describe this payment"

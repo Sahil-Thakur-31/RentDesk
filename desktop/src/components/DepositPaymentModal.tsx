@@ -106,7 +106,7 @@ const DepositPaymentModal = ({
           <div>
             <label className="text-xs text-[var(--muted)]">Deposit Received Now</label>
             <input
-              className="px-3 py-2 mt-1"
+              className="w-full px-3 py-2 mt-1"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="Enter amount"
@@ -117,7 +117,7 @@ const DepositPaymentModal = ({
             <label className="text-xs text-[var(--muted)]">Date</label>
             <input
               type="date"
-              className="px-3 py-2 mt-1"
+              className="w-full px-3 py-2 mt-1"
               value={date}
               onChange={(e) => setDate(e.target.value)}
               required
@@ -126,7 +126,7 @@ const DepositPaymentModal = ({
           <div>
             <label className="text-xs text-[var(--muted)]">Notes (Optional)</label>
             <input
-              className="px-3 py-2 mt-1"
+              className="w-full px-3 py-2 mt-1"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Security deposit collected"

@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
+import Badge, { type BadgeTone } from '../components/Badge';
 import { formatMonthKey } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
 
-const statusColor = (status: string) => {
-  if (status === 'paid') return 'text-[var(--success)]';
-  if (status === 'partial') return 'text-[var(--warning)]';
-  return 'text-[var(--danger)]';
+const statusTone = (status: string): BadgeTone => {
+  if (status === 'paid') return 'success';
+  if (status === 'partial') return 'warning';
+  return 'danger';
 };
 
 const UtilityBills = () => {
@@ -77,7 +78,9 @@ const UtilityBills = () => {
                 <td className="px-4 py-3">{formatMonthKey(bill.month)}</td>
                 <td className="px-4 py-3">{bill.unitsConsumed}</td>
                 <td className="px-4 py-3">₹{bill.amount}</td>
-                <td className={`px-4 py-3 ${statusColor(bill.status)}`}>{bill.status}</td>
+                <td className="px-4 py-3">
+                  <Badge tone={statusTone(bill.status)}>{bill.status}</Badge>
+                </td>
               </tr>
             ))}
           </tbody>

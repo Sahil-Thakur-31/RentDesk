@@ -3,9 +3,16 @@ import api from '../lib/api';
 import { appStorage } from '../lib/appStorage';
 import { notifyDataChanged, useDataVersion } from '../lib/dataSync';
 import { useI18n } from '../lib/i18n';
+import Badge, { type BadgeTone } from '../components/Badge';
 
 const getId = (value: any) => String(value?._id || value || '');
 type AccessRole = 'warden' | 'manager';
+const memberRoleTone = (role: string): BadgeTone => {
+  if (role === 'owner') return 'accent';
+  if (role === 'warden') return 'info';
+  if (role === 'manager') return 'warning';
+  return 'neutral';
+};
 type ManagementTab = 'members' | 'invite' | 'requests';
 type PortfolioActionTab = 'switch' | 'join' | 'create';
 
@@ -804,9 +811,9 @@ const Profile = () => {
                       <div className="font-medium truncate">{member.user?.fullName || 'Member'}</div>
                       <div className="truncate text-sm text-[var(--muted)]">{member.user?.email || '-'}</div>
                     </div>
-                    <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-xs font-medium capitalize">
+                    <Badge tone={memberRoleTone(member.role)} className="capitalize">
                       {member.role}
-                    </span>
+                    </Badge>
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">

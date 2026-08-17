@@ -4,6 +4,7 @@ import api from '../lib/api';
 import StatCard from '../components/StatCard';
 import TenantFormModal from '../components/TenantFormModal';
 import DepositPaymentModal from '../components/DepositPaymentModal';
+import Badge, { type BadgeTone } from '../components/Badge';
 import { formatDate, formatMonthKey, formatMonthYear } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
 
@@ -23,6 +24,18 @@ const formatUnitStatus = (status: string) => {
   if (status === 'maintenance') return 'Under Repair';
   if (status === 'occupied') return 'Occupied';
   return 'Vacant';
+};
+
+const unitStatusTone = (status: string): BadgeTone => {
+  if (status === 'maintenance') return 'warning';
+  if (status === 'occupied') return 'success';
+  return 'neutral';
+};
+
+const paymentStatusTone = (status: string): BadgeTone => {
+  if (status === 'paid') return 'success';
+  if (status === 'partial') return 'warning';
+  return 'danger';
 };
 
 const paymentFilterOptions = [
@@ -289,7 +302,7 @@ const UnitDetails = () => {
           </div>
           <div>
             <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Status</div>
-            <div className="font-medium">{formatUnitStatus(unit.status)}</div>
+            <div className="mt-1"><Badge tone={unitStatusTone(unit.status)}>{formatUnitStatus(unit.status)}</Badge></div>
           </div>
           <div>
             <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Meter Reading</div>
@@ -378,8 +391,10 @@ const UnitDetails = () => {
                 <div className="text-xs text-[var(--muted)]">{tenant.phone}</div>
                 {tenant.email && <div className="text-xs text-[var(--muted)]">{tenant.email}</div>}
               </div>
-              <div className="text-xs text-[var(--muted)] text-right">
-                <div>{tenant.isActive ? 'Active' : 'Moved Out'}</div>
+              <div className="text-right">
+                <Badge tone={tenant.isActive ? 'success' : 'neutral'}>
+                  {tenant.isActive ? 'Active' : 'Moved Out'}
+                </Badge>
               </div>
               <button
                 className="text-xs px-3 py-1.5 rounded-lg border border-black/10"
@@ -450,7 +465,9 @@ const UnitDetails = () => {
               <tr key={record._id} className="border-b border-black/5">
                 <td className="px-6 py-3">{formatMonthYear(record.month, record.year)}</td>
                 <td className="px-6 py-3">₹{record.rentAmount}</td>
-                <td className="px-6 py-3">{record.status}</td>
+                <td className="px-6 py-3">
+                  <Badge tone={paymentStatusTone(record.status)}>{record.status}</Badge>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -477,7 +494,9 @@ const UnitDetails = () => {
                 <td className="px-6 py-3">{formatMonthKey(bill.month)}</td>
                 <td className="px-6 py-3">{bill.unitsConsumed}</td>
                 <td className="px-6 py-3">₹{bill.amount}</td>
-                <td className="px-6 py-3">{bill.status}</td>
+                <td className="px-6 py-3">
+                  <Badge tone={paymentStatusTone(bill.status)}>{bill.status}</Badge>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -499,7 +518,7 @@ const UnitDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Unit Number</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Unit number"
                     value={form.unitNumber}
                     onChange={(e) => updateField('unitNumber', e.target.value)}
@@ -509,7 +528,7 @@ const UnitDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Unit Type</label>
                   <select
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     value={form.unitType}
                     onChange={(e) => updateField('unitType', e.target.value)}
                   >
@@ -523,7 +542,7 @@ const UnitDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Floor</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Floor"
                     value={form.floor}
                     onChange={(e) => updateField('floor', e.target.value)}
@@ -532,7 +551,7 @@ const UnitDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Size</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Size"
                     value={form.size}
                     onChange={(e) => updateField('size', e.target.value)}
@@ -541,7 +560,7 @@ const UnitDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Monthly Rent</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Monthly rent"
                     value={form.monthlyRent}
                     onChange={(e) => updateField('monthlyRent', e.target.value)}
@@ -551,7 +570,7 @@ const UnitDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Deposit</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Deposit"
                     value={form.deposit}
                     onChange={(e) => updateField('deposit', e.target.value)}
@@ -561,7 +580,7 @@ const UnitDetails = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Last Meter Reading</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Meter reading"
                     value={form.lastMeterReading}
                     onChange={(e) => updateField('lastMeterReading', e.target.value)}

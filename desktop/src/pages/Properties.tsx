@@ -2,6 +2,23 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useDataVersion } from '../lib/dataSync';
+import Badge, { type BadgeTone } from '../components/Badge';
+
+const propertyTypeLabels: Record<string, string> = {
+  building: 'Building',
+  flat: 'Flat',
+  shop: 'Shop',
+  commercial: 'Commercial',
+  plot: 'Plot'
+};
+
+const propertyTypeTone: Record<string, BadgeTone> = {
+  building: 'info',
+  flat: 'accent',
+  shop: 'warning',
+  commercial: 'danger',
+  plot: 'success'
+};
 
 const Properties = () => {
   const navigate = useNavigate();
@@ -155,7 +172,7 @@ const Properties = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Property Name</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Property name"
                     value={form.name}
                     onChange={(e) => updateField('name', e.target.value)}
@@ -165,7 +182,7 @@ const Properties = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Property Type</label>
                   <select
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     value={form.propertyType}
                     onChange={(e) => updateField('propertyType', e.target.value)}
                   >
@@ -179,7 +196,7 @@ const Properties = () => {
                 <div className="md:col-span-2">
                   <label className="text-xs text-[var(--muted)]">Address</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Address"
                     value={form.address}
                     onChange={(e) => updateField('address', e.target.value)}
@@ -189,7 +206,7 @@ const Properties = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">City</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="City"
                     value={form.city}
                     onChange={(e) => updateField('city', e.target.value)}
@@ -199,7 +216,7 @@ const Properties = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">State</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="State"
                     value={form.state}
                     onChange={(e) => updateField('state', e.target.value)}
@@ -209,7 +226,7 @@ const Properties = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Pincode</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Pincode"
                     value={form.pincode}
                     onChange={(e) => updateField('pincode', e.target.value)}
@@ -219,7 +236,7 @@ const Properties = () => {
                 <div className="md:col-span-2">
                   <label className="text-xs text-[var(--muted)]">Notes (Optional)</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Notes"
                     value={form.notes}
                     onChange={(e) => updateField('notes', e.target.value)}
@@ -228,7 +245,7 @@ const Properties = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Maintenance Charge (Monthly)</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Maintenance charge"
                     value={form.maintenanceCharge}
                     onChange={(e) => updateField('maintenanceCharge', e.target.value)}
@@ -237,7 +254,7 @@ const Properties = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Electricity Unit Rate</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Rate per unit"
                     value={form.electricityUnitRate}
                     onChange={(e) => updateField('electricityUnitRate', e.target.value)}
@@ -246,7 +263,7 @@ const Properties = () => {
                 <div>
                   <label className="text-xs text-[var(--muted)]">Common Electricity Charge</label>
                   <input
-                    className="px-3 py-2 mt-1"
+                    className="w-full px-3 py-2 mt-1"
                     placeholder="Common charge"
                     value={form.commonElectricityCharge}
                     onChange={(e) => updateField('commonElectricityCharge', e.target.value)}
@@ -278,7 +295,12 @@ const Properties = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {properties.map((property) => (
           <div key={property._id} className="bg-white rounded-2xl border border-black/5 p-5 shadow-sm">
-            <div className="text-lg font-semibold">{property.name}</div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-lg font-semibold">{property.name}</div>
+              <Badge tone={propertyTypeTone[property.propertyType] || 'neutral'}>
+                {propertyTypeLabels[property.propertyType] || property.propertyType}
+              </Badge>
+            </div>
             <div className="text-sm text-[var(--muted)]">{property.address}</div>
             <div className="text-xs text-[var(--muted)] mt-2">{property.city}, {property.state}</div>
             <div className="mt-4 flex items-center gap-2">

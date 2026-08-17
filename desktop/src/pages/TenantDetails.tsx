@@ -4,6 +4,8 @@ import api from '../lib/api';
 import StatCard from '../components/StatCard';
 import DepositPaymentModal from '../components/DepositPaymentModal';
 import Badge, { type BadgeTone } from '../components/Badge';
+import SortableTable, { type TableColumn } from '../components/SortableTable';
+import { ShieldIcon, TransactionsIcon, UserIcon } from '../components/icons';
 import { formatDate, formatMonthYear } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
 
@@ -85,9 +87,32 @@ const TenantDetails = () => {
       ? payments
       : payments.filter((payment) => getPaymentCategory(payment) === paymentFilter);
 
+  const paymentColumns: TableColumn<any>[] = [
+    { key: 'type', label: 'Type', accessor: (payment) => formatPaymentType(payment) },
+    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${payment.amount}` },
+    { key: 'date', label: 'Date', accessor: (payment) => new Date(payment.date).getTime(), render: (payment) => formatDate(payment.date) },
+    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
+  ];
+
+  const rentRecordColumns: TableColumn<any>[] = [
+    { key: 'month', label: 'Month', accessor: (record) => record.year * 100 + record.month, render: (record) => formatMonthYear(record.month, record.year) },
+    { key: 'amount', label: 'Amount', accessor: (record) => record.rentAmount, render: (record) => `₹${record.rentAmount}` },
+    {
+      key: 'status',
+      label: 'Status',
+      accessor: (record) => record.status,
+      filterOptions: [
+        { value: 'paid', label: 'Paid' },
+        { value: 'partial', label: 'Partial' },
+        { value: 'unpaid', label: 'Unpaid' }
+      ],
+      render: (record) => <Badge tone={paymentStatusTone(record.status)}>{record.status}</Badge>
+    }
+  ];
+
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-black/5 p-6 shadow-sm space-y-4">
+      <div className="card p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-lg font-semibold">{tenant.fullName}</div>
@@ -99,7 +124,7 @@ const TenantDetails = () => {
           </div>
           {tenant.assignedUnit?._id && (
             <button
-              className="px-4 py-2 rounded-xl text-sm border border-black/10"
+              className="btn btn-info"
               onClick={() => navigate(`/properties/${propertyId}/units/${tenant.assignedUnit._id}`)}
             >
               View Unit
@@ -109,21 +134,21 @@ const TenantDetails = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <StatCard label="Rent Amount" value={`₹${tenant.rentAmount || 0}`} />
-        <StatCard label="Deposit" value={`₹${tenant.depositAmount || 0}`} />
-        <StatCard label="Deposit Paid" value={`\u20B9${depositPaid}`} />
-        <StatCard label="Deposit Remaining" value={`\u20B9${depositRemaining}`} />
-        <StatCard label="Status" value={tenant.isActive ? 'Active' : 'Moved Out'} tone={tenant.isActive ? 'success' : 'default'} />
+        <StatCard label="Rent Amount" value={`₹${tenant.rentAmount || 0}`} icon={<TransactionsIcon width={18} height={18} />} />
+        <StatCard label="Deposit" value={`₹${tenant.depositAmount || 0}`} icon={<ShieldIcon width={18} height={18} />} />
+        <StatCard label="Deposit Paid" value={`\u20B9${depositPaid}`} tone="success" icon={<ShieldIcon width={18} height={18} />} />
+        <StatCard label="Deposit Remaining" value={`\u20B9${depositRemaining}`} tone={depositRemaining > 0 ? 'warning' : 'success'} icon={<ShieldIcon width={18} height={18} />} />
+        <StatCard label="Status" value={tenant.isActive ? 'Active' : 'Moved Out'} tone={tenant.isActive ? 'success' : 'default'} icon={<UserIcon width={18} height={18} />} />
       </div>
 
       {tenant.isActive && depositRemaining > 0 && (
-        <div className="bg-white rounded-2xl border border-black/5 p-4 shadow-sm flex items-center justify-between gap-3">
+        <div className="card p-4 flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold">Pending Deposit</div>
             <div className="text-sm text-[var(--muted)]">{`\u20B9${depositRemaining}`} remaining for this tenant.</div>
           </div>
           <button
-            className="px-4 py-2 rounded-xl text-sm border border-emerald-200 text-emerald-600 bg-emerald-50"
+            className="btn btn-success"
             onClick={() => setShowDepositModal(true)}
           >
             Pay Remaining Deposit
@@ -131,7 +156,7 @@ const TenantDetails = () => {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-black/5 p-6 shadow-sm space-y-3 text-sm">
+      <div className="card p-6 space-y-3 text-sm">
         <div className="grid grid-cols-2 gap-4">
           <div>
             <div className="text-xs text-[var(--muted)] uppercase tracking-wide">ID Proof</div>
@@ -144,73 +169,41 @@ const TenantDetails = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-        <div className="flex items-center justify-between gap-3 px-6 pt-6">
-          <div className="text-sm font-semibold">Payments</div>
-          <select
-            className="border border-black/10 rounded-lg px-3 py-2 text-sm"
-            value={paymentFilter}
-            onChange={(e) => setPaymentFilter(e.target.value as (typeof paymentFilterOptions)[number]['value'])}
-          >
-            {paymentFilterOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <table className="w-full text-sm mt-4">
-          <thead className="text-left border-b border-black/5">
-            <tr>
-              <th className="px-6 py-3">Type</th>
-              <th className="px-6 py-3">Amount</th>
-              <th className="px-6 py-3">Date</th>
-              <th className="px-6 py-3">Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredPayments.map((payment) => (
-              <tr key={payment._id} className="border-b border-black/5">
-                <td className="px-6 py-3">{formatPaymentType(payment)}</td>
-                <td className="px-6 py-3">₹{payment.amount}</td>
-                <td className="px-6 py-3">{formatDate(payment.date)}</td>
-                <td className="px-6 py-3">{payment.notes || '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!filteredPayments.length && (
-          <div className="px-6 pb-6 text-[var(--muted)]">
-            {paymentFilter === 'all' ? 'No payments yet.' : `No ${paymentFilter} payments found.`}
-          </div>
-        )}
+      <div>
+        <div className="text-sm font-semibold mb-3">Payments</div>
+        <SortableTable
+          columns={paymentColumns}
+          data={filteredPayments}
+          rowKey={(payment) => payment._id}
+          searchPlaceholder="Search payments by type, notes..."
+          emptyIcon={<TransactionsIcon width={22} height={22} />}
+          emptyTitle={paymentFilter === 'all' ? 'No payments yet' : `No ${paymentFilter} payments found`}
+          extraToolbar={
+            <select
+              className="py-2 pl-3 pr-3 text-sm"
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value as (typeof paymentFilterOptions)[number]['value'])}
+            >
+              {paymentFilterOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          }
+        />
       </div>
 
-      <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-        <div className="text-sm font-semibold px-6 pt-6">Rent Records</div>
-        <table className="w-full text-sm mt-4">
-          <thead className="text-left border-b border-black/5">
-            <tr>
-              <th className="px-6 py-3">Month</th>
-              <th className="px-6 py-3">Amount</th>
-              <th className="px-6 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rentRecords.map((record) => (
-              <tr key={record._id} className="border-b border-black/5">
-                <td className="px-6 py-3">
-                  {formatMonthYear(record.month, record.year)}
-                </td>
-                <td className="px-6 py-3">₹{record.rentAmount}</td>
-                <td className="px-6 py-3">
-                  <Badge tone={paymentStatusTone(record.status)}>{record.status}</Badge>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!rentRecords.length && <div className="px-6 pb-6 text-[var(--muted)]">No rent records yet.</div>}
+      <div>
+        <div className="text-sm font-semibold mb-3">Rent Records</div>
+        <SortableTable
+          columns={rentRecordColumns}
+          data={rentRecords}
+          rowKey={(record) => record._id}
+          searchPlaceholder="Search rent records..."
+          emptyIcon={<TransactionsIcon width={22} height={22} />}
+          emptyTitle="No rent records yet"
+        />
       </div>
       {tenant.isActive && (
         <DepositPaymentModal

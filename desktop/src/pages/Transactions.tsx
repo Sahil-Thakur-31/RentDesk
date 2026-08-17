@@ -3,8 +3,11 @@ import { createPortal } from 'react-dom';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import Badge, { type BadgeTone } from '../components/Badge';
+import SortableTable, { type TableColumn } from '../components/SortableTable';
+import { CloseIcon, TransactionsIcon } from '../components/icons';
 import { formatDate, formatMonthKey, formatMonthYear, getCurrentDateValue, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
+import { toast } from '../lib/toast';
 
 type TabKey = 'all' | 'rent' | 'electricity' | 'maintenance' | 'deposit' | 'others';
 type MaintenanceView = 'collected' | 'spent';
@@ -49,7 +52,6 @@ const Transactions = () => {
   const [formTenants, setFormTenants] = useState<any[]>([]);
   const [electricityRows, setElectricityRows] = useState<any[]>([]);
   const [formLoading, setFormLoading] = useState(false);
-  const [formError, setFormError] = useState('');
   const [rentRemainingAmount, setRentRemainingAmount] = useState(0);
   const [depositRemainingAmount, setDepositRemainingAmount] = useState(0);
   const [rentForm, setRentForm] = useState({
@@ -172,7 +174,6 @@ const Transactions = () => {
     if (!showAddPayment) return;
     setFormPropertyId(propertyId || '');
     setAddType('rent');
-    setFormError('');
     setRentForm({
       tenantId: '',
       month: monthFilter,
@@ -482,18 +483,16 @@ const Transactions = () => {
 
   const closeAddPaymentModal = () => {
     setShowAddPayment(false);
-    setFormError('');
     setFormLoading(false);
   };
 
   const submitAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formPropertyId) {
-      setFormError('Select a property.');
+      toast.error('Select a property.');
       return;
     }
 
-    setFormError('');
     setFormLoading(true);
     try {
       if (addType === 'rent') {
@@ -621,12 +620,132 @@ const Transactions = () => {
       }
 
       closeAddPaymentModal();
+      toast.success('Payment recorded.');
     } catch (err: any) {
-      setFormError(err?.response?.data?.message || err?.message || 'Failed to add payment.');
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to add payment.');
     } finally {
       setFormLoading(false);
     }
   };
+
+  const statusFilterOptions = [
+    { value: 'paid', label: 'Paid' },
+    { value: 'partial', label: 'Partial' },
+    { value: 'unpaid', label: 'Unpaid' }
+  ];
+
+  const allTransactionColumns: TableColumn<any>[] = [
+    { key: 'propertyName', label: 'Property', accessor: (item) => item.propertyName },
+    {
+      key: 'category',
+      label: 'Category',
+      accessor: (item) => item.category,
+      filterOptions: [
+        { value: 'Rent', label: 'Rent' },
+        { value: 'Electricity', label: 'Electricity' },
+        { value: 'Maintenance Collected', label: 'Maintenance Collected' },
+        { value: 'Maintenance Spent', label: 'Maintenance Spent' },
+        { value: 'Deposit', label: 'Deposit' },
+        { value: 'Deposit Refund', label: 'Deposit Refund' },
+        { value: 'Others', label: 'Others' }
+      ]
+    },
+    { key: 'details', label: 'Details', accessor: (item) => item.details },
+    { key: 'amount', label: 'Amount', accessor: (item) => item.amount, render: (item) => `₹${item.amount}` },
+    { key: 'date', label: 'Date', accessor: (item) => new Date(item.date).getTime(), render: (item) => formatDate(item.date) },
+    {
+      key: 'status',
+      label: 'Status',
+      accessor: (item) => item.status,
+      filterOptions: statusFilterOptions,
+      render: (item) => <Badge tone={statusTone(item.status)}>{item.status}</Badge>
+    }
+  ];
+
+  const rentTabColumns: TableColumn<any>[] = [
+    { key: 'propertyName', label: 'Property', accessor: (record) => getPropertyName(record, properties, propertyId) },
+    { key: 'tenant', label: 'Tenant', accessor: (record) => record.tenantId?.fullName || '-' },
+    { key: 'unit', label: 'Unit', accessor: (record) => record.unitId?.unitNumber || '-' },
+    { key: 'month', label: 'Month', accessor: (record) => record.year * 100 + record.month, render: (record) => formatMonthYear(record.month, record.year) },
+    {
+      key: 'paidTotal',
+      label: 'Paid / Total',
+      accessor: (record) => record.paidAmount || 0,
+      render: (record) => `₹${record.paidAmount || 0} / ₹${record.rentAmount}`
+    },
+    {
+      key: 'remaining',
+      label: 'Remaining',
+      accessor: (record) => Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0)),
+      render: (record) => `₹${Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0))}`
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      accessor: (record) => record.status,
+      filterOptions: statusFilterOptions,
+      render: (record) => <Badge tone={statusTone(record.status)}>{record.status}</Badge>
+    }
+  ];
+
+  const electricityTabColumns: TableColumn<any>[] = [
+    { key: 'propertyName', label: 'Property', accessor: (bill) => getPropertyName(bill, properties, propertyId) },
+    { key: 'unit', label: 'Unit', accessor: (bill) => bill.unitId?.unitNumber || '-' },
+    { key: 'month', label: 'Month', accessor: (bill) => bill.month, render: (bill) => formatMonthKey(bill.month) },
+    { key: 'units', label: 'Units', accessor: (bill) => bill.unitsConsumed },
+    { key: 'amount', label: 'Amount', accessor: (bill) => bill.amount, render: (bill) => `₹${bill.amount}` },
+    {
+      key: 'status',
+      label: 'Status',
+      accessor: (bill) => bill.status,
+      filterOptions: statusFilterOptions,
+      render: (bill) => <Badge tone={statusTone(bill.status)}>{bill.status}</Badge>
+    }
+  ];
+
+  const maintenanceCollectedColumns: TableColumn<any>[] = [
+    { key: 'propertyName', label: 'Property', accessor: (payment) => getPropertyName(payment, properties, propertyId) },
+    { key: 'date', label: 'Date', accessor: (payment) => new Date(payment.date).getTime(), render: (payment) => formatDate(payment.date) },
+    { key: 'tenant', label: 'Tenant', accessor: (payment) => payment.tenantId?.fullName || '-' },
+    { key: 'unit', label: 'Unit', accessor: (payment) => payment.unitId?.unitNumber || '-' },
+    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${payment.amount}` },
+    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
+  ];
+
+  const maintenanceSpentColumns: TableColumn<any>[] = [
+    { key: 'propertyName', label: 'Property', accessor: (record) => record.propertyName },
+    { key: 'date', label: 'Date', accessor: (record) => new Date(record.date).getTime(), render: (record) => formatDate(record.date) },
+    { key: 'category', label: 'Category', accessor: (record) => record.category },
+    { key: 'amount', label: 'Amount', accessor: (record) => record.amount, render: (record) => `₹${record.amount}` },
+    { key: 'paidTo', label: 'Paid To', accessor: (record) => record.paidTo },
+    { key: 'notes', label: 'Notes', accessor: (record) => record.notes }
+  ];
+
+  const depositTabColumns: TableColumn<any>[] = [
+    { key: 'propertyName', label: 'Property', accessor: (payment) => getPropertyName(payment, properties, propertyId) },
+    { key: 'date', label: 'Date', accessor: (payment) => new Date(payment.date).getTime(), render: (payment) => formatDate(payment.date) },
+    { key: 'tenant', label: 'Tenant', accessor: (payment) => payment.tenantId?.fullName || '-' },
+    { key: 'unit', label: 'Unit', accessor: (payment) => payment.unitId?.unitNumber || '-' },
+    {
+      key: 'type',
+      label: 'Type',
+      accessor: (payment) => payment.type,
+      filterOptions: [
+        { value: 'deposit', label: 'Deposit' },
+        { value: 'refund', label: 'Refund' }
+      ]
+    },
+    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${payment.amount}` },
+    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
+  ];
+
+  const othersTabColumns: TableColumn<any>[] = [
+    { key: 'propertyName', label: 'Property', accessor: (payment) => getPropertyName(payment, properties, propertyId) },
+    { key: 'type', label: 'Type', accessor: (payment) => payment.type },
+    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${payment.amount}` },
+    { key: 'date', label: 'Date', accessor: (payment) => new Date(payment.date).getTime(), render: (payment) => formatDate(payment.date) },
+    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
+  ];
 
   return (
     <div className="space-y-6">
@@ -674,7 +793,7 @@ const Transactions = () => {
           </button>
           <button
             type="button"
-            className="bg-[var(--accent)] text-white px-3.5 py-2 rounded-xl text-sm font-medium"
+            className="btn btn-primary"
             onClick={() => setShowAddPayment(true)}
           >
             Add Payment
@@ -683,108 +802,44 @@ const Transactions = () => {
       </div>
 
       {tab === 'all' && (
-        <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="text-left border-b border-black/5">
-              <tr>
-                <th className="px-4 py-3">Property</th>
-                <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3">Details</th>
-                <th className="px-4 py-3">Amount</th>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allTransactions.map((item) => (
-                <tr key={item._id} className="border-b border-black/5">
-                  <td className="px-4 py-3">{item.propertyName}</td>
-                  <td className="px-4 py-3">{item.category}</td>
-                  <td className="px-4 py-3">{item.details}</td>
-                  <td className="px-4 py-3">{`\u20B9${item.amount}`}</td>
-                  <td className="px-4 py-3">{formatDate(item.date)}</td>
-                  <td className="px-4 py-3">
-                    <Badge tone={statusTone(item.status)}>{item.status}</Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!allTransactions.length && <div className="px-4 py-6 text-[var(--muted)]">No transactions found.</div>}
-        </div>
+        <SortableTable
+          columns={allTransactionColumns}
+          data={allTransactions}
+          rowKey={(item) => item._id}
+          searchPlaceholder="Search by property, category, details..."
+          emptyIcon={<TransactionsIcon width={22} height={22} />}
+          emptyTitle="No transactions found"
+          emptyDescription="Payments across rent, utilities, maintenance, and deposits will show up here."
+        />
       )}
 
       {tab === 'rent' && (
-        <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="text-left border-b border-black/5">
-              <tr>
-                <th className="px-4 py-3">Property</th>
-                <th className="px-4 py-3">Tenant</th>
-                <th className="px-4 py-3">Unit</th>
-                <th className="px-4 py-3">Month</th>
-                <th className="px-4 py-3">Paid / Total</th>
-                <th className="px-4 py-3">Remaining</th>
-                <th className="px-4 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRentRecords.map((record) => (
-                <tr key={record._id} className="border-b border-black/5">
-                  <td className="px-4 py-3">{getPropertyName(record, properties, propertyId)}</td>
-                  <td className="px-4 py-3">{record.tenantId?.fullName}</td>
-                  <td className="px-4 py-3">{record.unitId?.unitNumber}</td>
-                  <td className="px-4 py-3">{formatMonthYear(record.month, record.year)}</td>
-                  <td className="px-4 py-3">{`\u20B9${record.paidAmount || 0} / \u20B9${record.rentAmount}`}</td>
-                  <td className="px-4 py-3">{`\u20B9${Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0))}`}</td>
-                  <td className="px-4 py-3">
-                    <Badge tone={statusTone(record.status)}>{record.status}</Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!filteredRentRecords.length && <div className="px-4 py-6 text-[var(--muted)]">No rent records found.</div>}
-        </div>
+        <SortableTable
+          columns={rentTabColumns}
+          data={filteredRentRecords}
+          rowKey={(record) => record._id}
+          searchPlaceholder="Search by tenant, unit, property..."
+          emptyIcon={<TransactionsIcon width={22} height={22} />}
+          emptyTitle="No rent records found"
+          emptyDescription="Rent records for the selected property and filters will appear here."
+        />
       )}
 
       {tab === 'electricity' && (
-        <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="text-left border-b border-black/5">
-              <tr>
-                <th className="px-4 py-3">Property</th>
-                <th className="px-4 py-3">Unit</th>
-                <th className="px-4 py-3">Month</th>
-                <th className="px-4 py-3">Units</th>
-                <th className="px-4 py-3">Amount</th>
-                <th className="px-4 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {electricityBills.map((bill) => (
-                <tr key={bill._id} className="border-b border-black/5">
-                  <td className="px-4 py-3">{getPropertyName(bill, properties, propertyId)}</td>
-                  <td className="px-4 py-3">{bill.unitId?.unitNumber || '-'}</td>
-                  <td className="px-4 py-3">{formatMonthKey(bill.month)}</td>
-                  <td className="px-4 py-3">{bill.unitsConsumed}</td>
-                  <td className="px-4 py-3">₹{bill.amount}</td>
-                  <td className="px-4 py-3">
-                    <Badge tone={statusTone(bill.status)}>{bill.status}</Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!electricityBills.length && (
-            <div className="px-4 py-6 text-[var(--muted)]">No electricity bills found.</div>
-          )}
-        </div>
+        <SortableTable
+          columns={electricityTabColumns}
+          data={electricityBills}
+          rowKey={(bill) => bill._id}
+          searchPlaceholder="Search by property, unit..."
+          emptyIcon={<TransactionsIcon width={22} height={22} />}
+          emptyTitle="No electricity bills found"
+          emptyDescription="Bills generated from meter readings will appear here."
+        />
       )}
 
       {tab === 'maintenance' && (
-        <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-          <div className="flex items-center gap-2 border-b border-black/5 px-4 py-3">
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
             {(
               [
                 { key: 'collected', label: 'Collected' },
@@ -806,127 +861,51 @@ const Transactions = () => {
           </div>
 
           {maintenanceView === 'collected' ? (
-            <>
-              <table className="w-full text-sm">
-                <thead className="text-left border-b border-black/5">
-                  <tr>
-                    <th className="px-4 py-3">Property</th>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Tenant</th>
-                    <th className="px-4 py-3">Unit</th>
-                    <th className="px-4 py-3">Amount</th>
-                    <th className="px-4 py-3">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {maintenanceCollectedPayments.map((payment) => (
-                    <tr key={payment._id} className="border-b border-black/5">
-                      <td className="px-4 py-3">{getPropertyName(payment, properties, propertyId)}</td>
-                      <td className="px-4 py-3">{formatDate(payment.date)}</td>
-                      <td className="px-4 py-3">{payment.tenantId?.fullName || '-'}</td>
-                      <td className="px-4 py-3">{payment.unitId?.unitNumber || '-'}</td>
-                      <td className="px-4 py-3">{`₹${payment.amount}`}</td>
-                      <td className="px-4 py-3">{payment.notes || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!maintenanceCollectedPayments.length && (
-                <div className="px-4 py-6 text-[var(--muted)]">No maintenance collected found.</div>
-              )}
-            </>
+            <SortableTable
+              columns={maintenanceCollectedColumns}
+              data={maintenanceCollectedPayments}
+              rowKey={(payment) => payment._id}
+              searchPlaceholder="Search by property, tenant, unit..."
+              emptyIcon={<TransactionsIcon width={22} height={22} />}
+              emptyTitle="No maintenance collected found"
+              emptyDescription="Maintenance payments collected from tenants will appear here."
+            />
           ) : (
-            <>
-              <table className="w-full text-sm">
-                <thead className="text-left border-b border-black/5">
-                  <tr>
-                    <th className="px-4 py-3">Property</th>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Category</th>
-                    <th className="px-4 py-3">Amount</th>
-                    <th className="px-4 py-3">Paid To</th>
-                    <th className="px-4 py-3">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {maintenanceSpentRows.map((record) => (
-                    <tr key={record._id} className="border-b border-black/5">
-                      <td className="px-4 py-3">{record.propertyName}</td>
-                      <td className="px-4 py-3">{formatDate(record.date)}</td>
-                      <td className="px-4 py-3">{record.category}</td>
-                      <td className="px-4 py-3">{`₹${record.amount}`}</td>
-                      <td className="px-4 py-3">{record.paidTo}</td>
-                      <td className="px-4 py-3">{record.notes}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!maintenanceSpentRows.length && (
-                <div className="px-4 py-6 text-[var(--muted)]">No maintenance spent found.</div>
-              )}
-            </>
+            <SortableTable
+              columns={maintenanceSpentColumns}
+              data={maintenanceSpentRows}
+              rowKey={(record) => record._id}
+              searchPlaceholder="Search by property, category, paid to..."
+              emptyIcon={<TransactionsIcon width={22} height={22} />}
+              emptyTitle="No maintenance spent found"
+              emptyDescription="Maintenance expenses logged for this property will appear here."
+            />
           )}
         </div>
       )}
 
       {tab === 'deposit' && (
-        <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="text-left border-b border-black/5">
-              <tr>
-                <th className="px-4 py-3">Property</th>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Tenant</th>
-                <th className="px-4 py-3">Unit</th>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Amount</th>
-                <th className="px-4 py-3">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {depositPayments.map((payment) => (
-                <tr key={payment._id} className="border-b border-black/5">
-                  <td className="px-4 py-3">{getPropertyName(payment, properties, propertyId)}</td>
-                  <td className="px-4 py-3">{formatDate(payment.date)}</td>
-                  <td className="px-4 py-3">{payment.tenantId?.fullName || '-'}</td>
-                  <td className="px-4 py-3">{payment.unitId?.unitNumber || '-'}</td>
-                  <td className="px-4 py-3">{payment.type}</td>
-                  <td className="px-4 py-3">{`\u20B9${payment.amount}`}</td>
-                  <td className="px-4 py-3">{payment.notes || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!depositPayments.length && <div className="px-4 py-6 text-[var(--muted)]">No deposit activity found.</div>}
-        </div>
+        <SortableTable
+          columns={depositTabColumns}
+          data={depositPayments}
+          rowKey={(payment) => payment._id}
+          searchPlaceholder="Search by property, tenant, unit..."
+          emptyIcon={<TransactionsIcon width={22} height={22} />}
+          emptyTitle="No deposit activity found"
+          emptyDescription="Deposit collections and refunds will appear here."
+        />
       )}
 
       {tab === 'others' && (
-        <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="text-left border-b border-black/5">
-              <tr>
-                <th className="px-4 py-3">Property</th>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Amount</th>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {otherPayments.map((payment) => (
-                <tr key={payment._id} className="border-b border-black/5">
-                  <td className="px-4 py-3">{getPropertyName(payment, properties, propertyId)}</td>
-                  <td className="px-4 py-3">{payment.type}</td>
-                  <td className="px-4 py-3">₹{payment.amount}</td>
-                  <td className="px-4 py-3">{formatDate(payment.date)}</td>
-                  <td className="px-4 py-3">{payment.notes || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!otherPayments.length && <div className="px-4 py-6 text-[var(--muted)]">No other transactions found.</div>}
-        </div>
+        <SortableTable
+          columns={othersTabColumns}
+          data={otherPayments}
+          rowKey={(payment) => payment._id}
+          searchPlaceholder="Search by property, type, notes..."
+          emptyIcon={<TransactionsIcon width={22} height={22} />}
+          emptyTitle="No other transactions found"
+          emptyDescription="Miscellaneous income and refunds will appear here."
+        />
       )}
 
       {showAddPayment && typeof document !== 'undefined' && createPortal(
@@ -937,8 +916,8 @@ const Transactions = () => {
                 <div className="text-sm text-[var(--muted)]">Add Payment</div>
                 <div className="text-lg font-semibold">Record a transaction</div>
               </div>
-              <button className="text-sm text-[var(--muted)]" onClick={closeAddPaymentModal}>
-                Close
+              <button className="modal-close-btn" onClick={closeAddPaymentModal} aria-label="Close">
+                <CloseIcon width={18} height={18} />
               </button>
             </div>
 
@@ -1245,19 +1224,17 @@ const Transactions = () => {
                 </div>
               )}
 
-              {formError && <div className="text-sm text-[var(--danger)]">{formError}</div>}
-
               <div className="flex items-center gap-3">
                 <button
                   type="submit"
-                  className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+                  className="btn btn-primary"
                   disabled={formLoading}
                 >
                   {formLoading ? 'Saving...' : 'Save Payment'}
                 </button>
                 <button
                   type="button"
-                  className="text-sm text-[var(--muted)]"
+                  className="btn btn-cancel"
                   onClick={closeAddPaymentModal}
                 >
                   Cancel

@@ -25,6 +25,8 @@ import api from './lib/api';
 import { appStorage } from './lib/appStorage';
 import { preloadUserData } from './lib/offlineBootstrap';
 import PortfolioOnboarding from './components/PortfolioOnboarding';
+import ToastViewport from './components/ToastViewport';
+import ConfirmDialogHost from './components/ConfirmDialogHost';
 import { I18nProvider, useI18n } from './lib/i18n';
 
 type AuthStatus = 'checking' | 'needs-portfolio' | 'hydrating' | 'authenticated' | 'unauthenticated';
@@ -139,7 +141,10 @@ const RequireAuth = ({ children }: { children: ReactElement }) => {
 
   if (status === 'checking' || status === 'hydrating') {
     return (
-      <div className="h-screen flex items-center justify-center bg-[var(--bg)] text-[var(--muted)] text-sm">
+      <div className="h-screen flex flex-col items-center justify-center gap-4 bg-[var(--bg)] text-sm text-[var(--muted)]">
+        <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] text-white flex items-center justify-center font-semibold shadow-[0_10px_20px_rgba(15,118,110,0.3)] animate-pulse">
+          RD
+        </div>
         {status === 'checking' ? t('Checking session...') : t('Preparing local data...')}
       </div>
     );
@@ -198,6 +203,8 @@ const App = () => {
             }
           />
         </Routes>
+        <ToastViewport />
+        <ConfirmDialogHost />
       </div>
     </I18nProvider>
   );

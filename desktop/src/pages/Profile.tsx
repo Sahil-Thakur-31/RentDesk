@@ -4,6 +4,8 @@ import { appStorage } from '../lib/appStorage';
 import { notifyDataChanged, useDataVersion } from '../lib/dataSync';
 import { useI18n } from '../lib/i18n';
 import Badge, { type BadgeTone } from '../components/Badge';
+import { CloseIcon } from '../components/icons';
+import { toast } from '../lib/toast';
 
 const getId = (value: any) => String(value?._id || value || '');
 type AccessRole = 'warden' | 'manager';
@@ -93,8 +95,8 @@ const MemberEditorModal = ({
             <div className="mt-2 text-2xl font-semibold">{member.user?.fullName || 'Member'}</div>
             <div className="text-sm text-[var(--muted)]">{member.user?.email || '-'}</div>
           </div>
-          <button type="button" className="text-sm text-[var(--muted)] hover:text-[var(--text)]" onClick={onClose}>
-            Close
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close">
+            <CloseIcon width={18} height={18} />
           </button>
         </div>
 
@@ -134,7 +136,7 @@ const MemberEditorModal = ({
         <div className="mt-6 flex justify-end gap-3">
           <button
             type="button"
-            className="rounded-2xl border border-black/10 px-4 py-2 text-sm hover:bg-black/5"
+            className="btn btn-cancel"
             onClick={onClose}
             disabled={saving}
           >
@@ -142,7 +144,7 @@ const MemberEditorModal = ({
           </button>
           <button
             type="button"
-            className="rounded-2xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            className="btn btn-primary"
             disabled={saving}
             onClick={async () => {
               setSaving(true);
@@ -193,8 +195,6 @@ const Profile = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [searchingUsers, setSearchingUsers] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
 
   const canManageMembers = membership?.role === 'owner' || membership?.role === 'warden';
   const canAssignWarden = membership?.role === 'owner';
@@ -208,11 +208,6 @@ const Profile = () => {
       setInviteRole(availableRoleOptions[0] || 'manager');
     }
   }, [availableRoleOptions, inviteRole]);
-
-  const resetFeedback = () => {
-    setMessage('');
-    setError('');
-  };
 
   const applyPortfolioSwitch = (portfolioId: string) => {
     appStorage.setItem('rentdesk_active_portfolio_id', portfolioId);
@@ -263,9 +258,8 @@ const Profile = () => {
       });
       setRequestRoles(nextRoles);
       setRequestPropertyIds(nextSelections);
-      setError('');
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to load profile right now.'));
+      toast.error(err?.response?.data?.message || t('Unable to load profile right now.'));
     } finally {
       setLoading(false);
     }
@@ -316,18 +310,17 @@ const Profile = () => {
   const handleJoinRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCode.trim()) {
-      setError(t('Enter the 7-digit portfolio code first.'));
+      toast.error(t('Enter the 7-digit portfolio code first.'));
       return;
     }
 
     setSaving(true);
-    resetFeedback();
     try {
       await api.post('/portfolio/join-requests', { code: joinCode.trim() });
       setJoinCode('');
-      setMessage(t('Join request sent.'));
+      toast.success(t('Join request sent.'));
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to send join request right now.'));
+      toast.error(err?.response?.data?.message || t('Unable to send join request right now.'));
     } finally {
       setSaving(false);
     }
@@ -336,7 +329,6 @@ const Profile = () => {
   const handleCreatePortfolio = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    resetFeedback();
     try {
       const response = await api.post('/portfolio/create', { name: newPortfolioName.trim() });
       const nextPortfolioId = getId(response.data?.portfolio?._id);
@@ -346,7 +338,7 @@ const Profile = () => {
       }
       setSaving(false);
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to create portfolio right now.'));
+      toast.error(err?.response?.data?.message || t('Unable to create portfolio right now.'));
       setSaving(false);
     }
   };
@@ -354,7 +346,6 @@ const Profile = () => {
   const handleSwitchPortfolio = async () => {
     if (!selectedPortfolioId || selectedPortfolioId === getId(portfolio?._id)) return;
     setSaving(true);
-    resetFeedback();
     try {
       const response = await api.post('/portfolio/switch', { portfolioId: selectedPortfolioId });
       const nextPortfolioId = getId(response.data?.activePortfolioId || selectedPortfolioId);
@@ -364,7 +355,7 @@ const Profile = () => {
       }
       setSaving(false);
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Unable to switch portfolio right now.');
+      toast.error(err?.response?.data?.message || 'Unable to switch portfolio right now.');
       setSaving(false);
     }
   };
@@ -372,12 +363,11 @@ const Profile = () => {
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedInviteUser?._id) {
-      setError(t('Choose a registered user first.'));
+      toast.error(t('Choose a registered user first.'));
       return;
     }
 
     setSaving(true);
-    resetFeedback();
     try {
       await api.post('/portfolio/invite', {
         userId: selectedInviteUser._id,
@@ -388,9 +378,9 @@ const Profile = () => {
       setInviteQuery('');
       setSelectedInviteUser(null);
       setInviteResults([]);
-      setMessage(t('Member added.'));
+      toast.success(t('Member added.'));
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to add member.'));
+      toast.error(err?.response?.data?.message || t('Unable to add member.'));
     } finally {
       setSaving(false);
     }
@@ -398,7 +388,6 @@ const Profile = () => {
 
   const handleJoinDecision = async (requestId: string, action: 'approve' | 'reject') => {
     setSaving(true);
-    resetFeedback();
     try {
       if (action === 'approve') {
         await api.post(`/portfolio/join-requests/${requestId}/approve`, {
@@ -409,9 +398,9 @@ const Profile = () => {
         await api.post(`/portfolio/join-requests/${requestId}/reject`);
       }
       await loadProfile();
-      setMessage(action === 'approve' ? t('Request approved.') : t('Request denied.'));
+      toast.success(action === 'approve' ? t('Request approved.') : t('Request denied.'));
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to update request right now.'));
+      toast.error(err?.response?.data?.message || t('Unable to update request right now.'));
     } finally {
       setSaving(false);
     }
@@ -420,7 +409,6 @@ const Profile = () => {
   const handleSaveDueDates = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    resetFeedback();
     try {
       await api.patch('/portfolio/settings', {
         rentDueDay: Number(dueDates.rentDueDay),
@@ -429,9 +417,9 @@ const Profile = () => {
         reminderLeadDays: Number(dueDates.reminderLeadDays)
       });
       await loadProfile();
-      setMessage(t('Due dates updated.'));
+      toast.success(t('Due dates updated.'));
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to update due dates.'));
+      toast.error(err?.response?.data?.message || t('Unable to update due dates.'));
     } finally {
       setSaving(false);
     }
@@ -439,26 +427,24 @@ const Profile = () => {
 
   const handleRemoveMember = async (memberId: string) => {
     setSaving(true);
-    resetFeedback();
     try {
       await api.delete(`/portfolio/members/${memberId}`);
       await loadProfile();
-      setMessage(t('Member removed.'));
+      toast.success(t('Member removed.'));
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to remove member.'));
+      toast.error(err?.response?.data?.message || t('Unable to remove member.'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleUpdateMember = async (memberId: string, payload: { role: AccessRole; propertyIds: string[] }) => {
-    resetFeedback();
     try {
       await api.patch(`/portfolio/members/${memberId}`, payload);
       await loadProfile();
-      setMessage(t('Member updated.'));
+      toast.success(t('Member updated.'));
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to update member.'));
+      toast.error(err?.response?.data?.message || t('Unable to update member.'));
       throw err;
     }
   };
@@ -467,10 +453,9 @@ const Profile = () => {
     if (!portfolio?.joinCode) return;
     try {
       await navigator.clipboard.writeText(portfolio.joinCode);
-      setMessage(t('Portfolio code copied.'));
-      setError('');
+      toast.success(t('Portfolio code copied.'));
     } catch {
-      setError(t('Unable to copy the portfolio code right now.'));
+      toast.error(t('Unable to copy the portfolio code right now.'));
     }
   };
 
@@ -478,7 +463,6 @@ const Profile = () => {
     if (membership?.role !== 'owner' || !portfolio?._id) return;
 
     setSaving(true);
-    resetFeedback();
     try {
       const response = await api.delete('/portfolio');
       const nextActivePortfolioId = getId(response.data?.activePortfolioId);
@@ -490,7 +474,7 @@ const Profile = () => {
       notifyDataChanged();
       window.location.replace('/profile');
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to delete this portfolio.'));
+      toast.error(err?.response?.data?.message || t('Unable to delete this portfolio.'));
       setSaving(false);
     }
   };
@@ -538,7 +522,7 @@ const Profile = () => {
             </div>
             <button
               type="button"
-              className="self-end rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm font-medium hover:bg-black/5 disabled:opacity-60"
+              className="btn btn-secondary self-end !py-3"
               disabled={saving || !selectedPortfolioId || selectedPortfolioId === getId(portfolio?._id)}
               onClick={() => void handleSwitchPortfolio()}
             >
@@ -576,7 +560,6 @@ const Profile = () => {
                   portfolioAction === tab.key ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--muted)]'
                 }`}
                 onClick={() => {
-                  resetFeedback();
                   setPortfolioAction(tab.key);
                 }}
               >
@@ -619,7 +602,7 @@ const Profile = () => {
               />
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
+                className="btn btn-primary w-full !py-3"
                 disabled={saving}
               >
                 {saving ? 'Sending...' : 'Send Request'}
@@ -637,7 +620,7 @@ const Profile = () => {
               />
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
+                className="btn btn-primary w-full !py-3"
                 disabled={saving}
               >
                 {saving ? 'Creating...' : 'Create Portfolio'}
@@ -646,18 +629,6 @@ const Profile = () => {
           ) : null}
         </div>
       </div>
-
-      {(message || error) && (
-        <div
-          className={`rounded-2xl border px-4 py-3 text-sm ${
-            error
-              ? 'border-red-200 bg-red-50 text-red-700'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          }`}
-        >
-          {error || message}
-        </div>
-      )}
 
       {membership?.role === 'owner' ? (
         <form onSubmit={handleSaveDueDates} className="rounded-3xl border border-black/5 bg-white p-6 shadow-sm">
@@ -668,7 +639,7 @@ const Profile = () => {
             </div>
             <button
               type="submit"
-              className="rounded-2xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              className="btn btn-primary !py-2.5"
               disabled={saving}
             >
               {saving ? 'Saving...' : 'Save'}
@@ -715,7 +686,7 @@ const Profile = () => {
             </div>
             <button
               type="button"
-              className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+              className="btn btn-danger !py-2.5"
               disabled={saving}
               onClick={() => setConfirmDeletePortfolio((current) => !current)}
             >
@@ -732,7 +703,7 @@ const Profile = () => {
               <div className="mt-4 flex gap-2">
                 <button
                   type="button"
-                  className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                  className="btn btn-danger-solid"
                   disabled={saving}
                   onClick={() => void handleDeletePortfolio()}
                 >
@@ -740,7 +711,7 @@ const Profile = () => {
                 </button>
                 <button
                   type="button"
-                  className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm text-red-700"
+                  className="btn btn-danger"
                   disabled={saving}
                   onClick={() => setConfirmDeletePortfolio(false)}
                 >
@@ -831,14 +802,14 @@ const Profile = () => {
                     <div className="mt-4 flex gap-2">
                       <button
                         type="button"
-                        className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black/5"
+                        className="btn btn-sm btn-warning"
                         onClick={() => setEditingMember(member)}
                       >
                         Edit
                       </button>
                       <button
                         type="button"
-                        className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 hover:bg-red-100"
+                        className="btn btn-sm btn-danger"
                         onClick={() => void handleRemoveMember(member._id)}
                       >
                         Remove
@@ -934,7 +905,7 @@ const Profile = () => {
 
                 <button
                   type="submit"
-                  className="mt-4 w-full rounded-2xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+                  className="btn btn-primary w-full !py-2.5 mt-4"
                   disabled={saving || !selectedInviteUser}
                 >
                   {saving ? 'Adding...' : 'Add Member'}
@@ -996,14 +967,14 @@ const Profile = () => {
                       <div className="mt-4 flex gap-2">
                         <button
                           type="button"
-                          className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 hover:bg-emerald-100"
+                          className="btn btn-sm btn-success"
                           onClick={() => void handleJoinDecision(request._id, 'approve')}
                         >
                           Approve
                         </button>
                         <button
                           type="button"
-                          className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 hover:bg-red-100"
+                          className="btn btn-sm btn-danger"
                           onClick={() => void handleJoinDecision(request._id, 'reject')}
                         >
                           Deny

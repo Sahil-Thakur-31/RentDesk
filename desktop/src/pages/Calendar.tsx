@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
+import { CloseIcon } from '../components/icons';
 import { formatDate, formatMonthKey, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
+import { toast } from '../lib/toast';
 
 type CalendarEvent = {
   id: string;
@@ -62,7 +64,6 @@ const Calendar = () => {
   const [showDayModal, setShowDayModal] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
   useEffect(() => {
     const loadProperties = async () => {
@@ -81,7 +82,7 @@ const Calendar = () => {
           });
         }
       } catch (err: any) {
-        setError(err?.response?.data?.message || 'Unable to load calendar portfolios.');
+        toast.error(err?.response?.data?.message || 'Unable to load calendar portfolios.');
       }
     };
 
@@ -103,7 +104,6 @@ const Calendar = () => {
       }
 
       setLoading(true);
-      setError('');
       try {
         const activeProperties = propertyId
           ? properties.filter((property) => property._id === propertyId)
@@ -243,7 +243,7 @@ const Calendar = () => {
           eventBuckets.flat().sort((left, right) => left.date.localeCompare(right.date) || left.title.localeCompare(right.title))
         );
       } catch (err: any) {
-        setError(err?.response?.data?.message || 'Unable to load calendar events.');
+        toast.error(err?.response?.data?.message || 'Unable to load calendar events.');
       } finally {
         setLoading(false);
       }
@@ -274,7 +274,7 @@ const Calendar = () => {
 
   return (
     <div className='space-y-6 pb-6'>
-      <div className='rounded-3xl border border-black/5 bg-white p-6 shadow-sm'>
+      <div className='card !rounded-3xl p-6'>
         <div className='flex flex-wrap items-center justify-between gap-4'>
           <div>
             <div className='text-sm uppercase tracking-[0.22em] text-[var(--muted)]'>Portfolio Calendar</div>
@@ -336,11 +336,7 @@ const Calendar = () => {
         </div>
       </div>
 
-      {error && (
-        <div className='rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'>{error}</div>
-      )}
-
-      <div className='rounded-3xl border border-black/5 bg-white p-6 shadow-sm'>
+      <div className='card !rounded-3xl p-6'>
         <div className='mb-4 flex items-center justify-between'>
           <div>
             <div className='text-sm uppercase tracking-[0.22em] text-[var(--muted)]'>Month View</div>
@@ -417,10 +413,11 @@ const Calendar = () => {
               </div>
               <button
                 type='button'
-                className='text-sm text-[var(--muted)] hover:text-[var(--text)]'
+                className='modal-close-btn'
                 onClick={() => setShowDayModal(false)}
+                aria-label='Close'
               >
-                Close
+                <CloseIcon width={18} height={18} />
               </button>
             </div>
 
@@ -444,7 +441,7 @@ const Calendar = () => {
                       </div>
                       <button
                         type='button'
-                        className='shrink-0 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm hover:bg-black/5'
+                        className='btn btn-sm btn-info shrink-0'
                         onClick={() => {
                           setShowDayModal(false);
                           navigate(event.viewPath);

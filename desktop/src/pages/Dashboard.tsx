@@ -8,6 +8,8 @@ import { useDataVersion } from '../lib/dataSync';
 import { appStorage } from '../lib/appStorage';
 import { useI18n } from '../lib/i18n';
 import { getCachedResponse } from '../lib/offlineSync';
+import { BuildingIcon, CashIcon, CloseIcon, ShieldIcon, TransactionsIcon, UnitsIcon, UtilitiesIcon, WrenchIcon } from '../components/icons';
+import { toast } from '../lib/toast';
 
 const dashboardSessionCache = {
   token: '',
@@ -136,7 +138,6 @@ const Dashboard = () => {
   const [paidMaintenance, setPaidMaintenance] = useState<any[]>([]);
   const [pendingDeposits, setPendingDeposits] = useState<any[]>([]);
   const [paidDeposits, setPaidDeposits] = useState<any[]>([]);
-  const [paymentError, setPaymentError] = useState('');
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [otherForm, setOtherForm] = useState({
     type: 'other',
@@ -828,7 +829,6 @@ const Dashboard = () => {
     setPaymentPropertyId(propertyId || '');
     setModalMonth(getMonthKey(year, month));
     setPaymentTab('rent');
-    setPaymentError('');
   }, [showPaymentModal, propertyId]);
 
   useEffect(() => {
@@ -1068,7 +1068,6 @@ const Dashboard = () => {
     remaining: number;
     actionLabel: string;
   }) => {
-    setPaymentError('');
     setCollectAmount(String(config.remaining || ''));
     setCollectModal(config);
   };
@@ -1076,13 +1075,12 @@ const Dashboard = () => {
     if (collectSaving && !force) return;
     setCollectModal(null);
     setCollectAmount('');
-    setPaymentError('');
   };
   const submitCollectModal = async () => {
     if (!collectModal) return;
     const amount = Number(collectAmount);
     if (!amount || amount <= 0 || amount > collectModal.remaining) {
-      setPaymentError(
+      toast.error(
         collectModal.type === 'rent'
           ? 'Rent amount must be greater than 0 and not exceed remaining rent.'
           : 'Deposit amount must be greater than 0 and not exceed remaining deposit.'
@@ -1090,7 +1088,6 @@ const Dashboard = () => {
       return;
     }
 
-    setPaymentError('');
     setCollectSaving(true);
 
     try {
@@ -1181,8 +1178,9 @@ const Dashboard = () => {
       }
 
       closeCollectModal(true);
+      toast.success(collectModal.type === 'rent' ? 'Rent collected.' : 'Deposit collected.');
     } catch (error: any) {
-      setPaymentError(
+      toast.error(
         error?.response?.data?.message ||
           (collectModal.type === 'rent' ? 'Unable to collect rent right now.' : 'Unable to collect deposit right now.')
       );
@@ -1269,7 +1267,7 @@ const Dashboard = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            className="text-sm px-3 py-2 rounded-lg bg-[var(--accent)] text-white"
+            className="btn btn-primary btn-sm"
             onClick={() => setShowPaymentModal(true)}
           >
             {t('Add Payment')}
@@ -1283,52 +1281,60 @@ const Dashboard = () => {
           value={`${'\u20B9'}${collectedRent} / ${'\u20B9'}${expectedRent}`}
           subLabel={`${'\u20B9'}${pendingRent} pending`}
           tone={pendingRent > 0 ? 'warning' : 'success'}
+          icon={<TransactionsIcon width={18} height={18} />}
         />
         <StatCard
           label="Electricity"
           value={`${'\u20B9'}${electricityCollected} / ${'\u20B9'}${electricityTotal}`}
           subLabel={`${'\u20B9'}${electricityUnpaid} unpaid`}
           tone={electricityUnpaid > 0 ? 'warning' : 'success'}
+          icon={<UtilitiesIcon width={18} height={18} />}
         />
         <StatCard
           label="Maintenance"
           value={`${'\u20B9'}${maintenanceCollected} / ${'\u20B9'}${maintenanceExpected}`}
           subLabel={`${'\u20B9'}${maintenancePending} pending`}
           tone={maintenancePending > 0 ? 'warning' : 'success'}
+          icon={<WrenchIcon width={18} height={18} />}
         />
         <StatCard
           label="Maintenance Spent"
           value={`${'\u20B9'}${maintenanceSpent}`}
           subLabel="Property expenses"
           tone="default"
+          icon={<WrenchIcon width={18} height={18} />}
         />
         <StatCard
           label="Deposit"
           value={`${'\u20B9'}${depositCollected} / ${'\u20B9'}${depositRequired}`}
           subLabel={`${'\u20B9'}${depositPending} pending`}
           tone={depositPending > 0 ? 'warning' : 'success'}
+          icon={<ShieldIcon width={18} height={18} />}
         />
         <StatCard
           label="Other Cash"
           value={`${'\u20B9'}${otherCashIntake}`}
           subLabel="Extra income received"
           tone={otherCashIntake > 0 ? 'success' : 'default'}
+          icon={<CashIcon width={18} height={18} />}
         />
         <StatCard
           label="Occupancy"
           value={`${occupancyRate}%`}
           subLabel={`${totals.occupiedUnits || 0} of ${totals.totalUnits || 0} units occupied`}
           tone={occupancyRate >= 90 ? 'success' : occupancyRate >= 60 ? 'warning' : 'danger'}
+          icon={<UnitsIcon width={18} height={18} />}
         />
         <StatCard
           label="Properties"
           value={totals.totalProperties || 0}
           subLabel="Total buildings and flats"
+          icon={<BuildingIcon width={18} height={18} />}
         />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl border border-black/5 p-6 shadow-sm space-y-4">
+        <div className="card p-6 space-y-4">
           <div className="text-sm font-semibold">{t('Summary')}</div>
           <div className="space-y-4">
             <div className="flex items-baseline justify-between">
@@ -1410,7 +1416,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-black/5 shadow-sm overflow-hidden">
+        <div className="card overflow-hidden">
           <div className="grid grid-cols-5 gap-1.5 p-1.5 border-b border-black/5">
             {nextActionTabs.map((item) => (
               <button
@@ -1550,8 +1556,8 @@ const Dashboard = () => {
                 <div className="text-sm text-[var(--muted)]">{t('Add Payment')}</div>
                 <div className="text-lg font-semibold">{t('Transactions')}</div>
               </div>
-              <button className="text-sm text-[var(--muted)]" onClick={() => setShowPaymentModal(false)}>
-                {t('Close')}
+              <button className="modal-close-btn" onClick={() => setShowPaymentModal(false)} aria-label={t('Close')}>
+                <CloseIcon width={18} height={18} />
               </button>
             </div>
 
@@ -1654,7 +1660,7 @@ const Dashboard = () => {
                               <div className="font-semibold">{'\u20B9'}{remaining}</div>
                               <button
                                 type="button"
-                                className="text-xs px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-600 bg-emerald-50"
+                                className="btn btn-sm btn-success"
                                 onClick={() => {
                                   const targetProperty = paymentPropertyId || record._propertyId || record.propertyId;
                                   if (!targetProperty) return;
@@ -1745,7 +1751,7 @@ const Dashboard = () => {
                               <div className="font-semibold">{'\u20B9'}{bill.amount}</div>
                               <button
                                 type="button"
-                                className="text-xs px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-600 bg-emerald-50"
+                                className="btn btn-sm btn-success"
                                 onClick={async () => {
                                   const targetProperty = paymentPropertyId || bill._propertyId || bill.propertyId;
                                   if (!targetProperty) return;
@@ -1829,7 +1835,7 @@ const Dashboard = () => {
                               <div className="font-semibold">{'\u20B9'}{item.amount}</div>
                               <button
                                 type="button"
-                                className="text-xs px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-600 bg-emerald-50"
+                                className="btn btn-sm btn-success"
                                 onClick={async () => {
                                   const targetProperty = paymentPropertyId || item._propertyId || item.propertyId;
                                   if (!targetProperty) return;
@@ -1939,7 +1945,7 @@ const Dashboard = () => {
                               <div className="font-semibold">{'\u20B9'}{item.remaining}</div>
                               <button
                                 type="button"
-                                className="text-xs px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-600 bg-emerald-50"
+                                className="btn btn-sm btn-success"
                                 onClick={() => {
                                   const targetProperty = paymentPropertyId || item._propertyId || item.propertyId;
                                   if (!targetProperty) return;
@@ -2009,10 +2015,9 @@ const Dashboard = () => {
                 onSubmit={async (e) => {
                   e.preventDefault();
                   if (!paymentPropertyId || !otherForm.amount) {
-                    setPaymentError('Enter an amount.');
+                    toast.error('Enter an amount.');
                     return;
                   }
-                  setPaymentError('');
                   setPaymentSaving(true);
                   try {
                     const isMaintenanceSpent = otherForm.type === 'maintenance';
@@ -2025,8 +2030,9 @@ const Dashboard = () => {
                       tenantId: otherForm.tenantId || undefined
                     });
                     setShowPaymentModal(false);
+                    toast.success('Payment recorded.');
                   } catch (err: any) {
-                    setPaymentError(err?.response?.data?.message || 'Failed to save payment.');
+                    toast.error(err?.response?.data?.message || 'Failed to save payment.');
                   } finally {
                     setPaymentSaving(false);
                   }
@@ -2103,18 +2109,17 @@ const Dashboard = () => {
                     />
                   </div>
                 </div>
-                {paymentError && <div className="text-sm text-[var(--danger)]">{paymentError}</div>}
                 <div className="flex items-center gap-3">
                   <button
                     type="submit"
-                    className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+                    className="btn btn-primary"
                     disabled={paymentSaving}
                   >
                     {paymentSaving ? 'Saving...' : 'Save Payment'}
                   </button>
                   <button
                     type="button"
-                    className="text-sm text-[var(--muted)]"
+                    className="btn btn-cancel"
                     onClick={() => setShowPaymentModal(false)}
                   >
                     Cancel
@@ -2136,11 +2141,12 @@ const Dashboard = () => {
                   </div>
                   <button
                     type="button"
-                    className="text-sm text-[var(--muted)]"
+                    className="modal-close-btn"
                     onClick={() => closeCollectModal()}
                     disabled={collectSaving}
+                    aria-label="Close"
                   >
-                    Close
+                    <CloseIcon width={18} height={18} />
                   </button>
                 </div>
                 <div className="mt-5">
@@ -2156,11 +2162,10 @@ const Dashboard = () => {
                     autoFocus
                   />
                 </div>
-                {paymentError && <div className="mt-3 text-sm text-[var(--danger)]">{paymentError}</div>}
                 <div className="mt-5 flex items-center gap-3">
                   <button
                     type="button"
-                    className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+                    className="btn btn-primary"
                     onClick={submitCollectModal}
                     disabled={collectSaving}
                   >
@@ -2168,7 +2173,7 @@ const Dashboard = () => {
                   </button>
                   <button
                     type="button"
-                    className="text-sm text-[var(--muted)]"
+                    className="btn btn-cancel"
                     onClick={() => closeCollectModal()}
                     disabled={collectSaving}
                   >

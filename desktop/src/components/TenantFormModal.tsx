@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
+import { CloseIcon } from './icons';
+import { toast } from '../lib/toast';
 
 type TenantFormModalProps = {
   open: boolean;
   onClose: () => void;
   propertyId: string;
+  properties?: Array<{ _id: string; name: string }>;
   assignedUnitId?: string;
   assignedUnitLabel?: string;
-  units?: Array<{ _id: string; unitNumber: string }>;
+  units?: Array<{ _id: string; unitNumber: string; _propertyId?: string }>;
   onSaved?: () => void;
 };
 
@@ -15,15 +18,16 @@ const TenantFormModal = ({
   open,
   onClose,
   propertyId,
+  properties = [],
   assignedUnitId,
   assignedUnitLabel,
   units = [],
   onSaved
 }: TenantFormModalProps) => {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [deletedTenants, setDeletedTenants] = useState<any[]>([]);
   const [selectedExisting, setSelectedExisting] = useState<any>(null);
+  const [selectedPropertyId, setSelectedPropertyId] = useState(propertyId || '');
   const [form, setForm] = useState({
     fullName: '',
     phone: '',
@@ -35,9 +39,14 @@ const TenantFormModal = ({
     depositPaid: ''
   });
 
+  const showPropertyPicker = !assignedUnitId && properties.length > 0;
+  const availableUnits = showPropertyPicker
+    ? units.filter((unit) => !unit._propertyId || unit._propertyId === selectedPropertyId)
+    : units;
+
   useEffect(() => {
-    if (!open || !propertyId) return;
-    setError('');
+    if (!open) return;
+    setSelectedPropertyId(propertyId || '');
     setForm({
       fullName: '',
       phone: '',
@@ -49,16 +58,23 @@ const TenantFormModal = ({
       depositPaid: ''
     });
     setSelectedExisting(null);
+  }, [open, assignedUnitId, propertyId]);
+
+  useEffect(() => {
+    if (!open || !selectedPropertyId) {
+      setDeletedTenants([]);
+      return;
+    }
     const loadDeleted = async () => {
       try {
-        const response = await api.get(`/properties/${propertyId}/tenants?status=deleted`);
+        const response = await api.get(`/properties/${selectedPropertyId}/tenants?status=deleted`);
         setDeletedTenants(response.data || []);
       } catch {
         setDeletedTenants([]);
       }
     };
     loadDeleted();
-  }, [open, assignedUnitId, propertyId]);
+  }, [open, selectedPropertyId]);
 
   const updateField = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -69,11 +85,14 @@ const TenantFormModal = ({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    if (!selectedPropertyId) {
+      toast.error('Please select a property.');
+      return;
+    }
     setLoading(true);
     try {
       if (selectedExisting) {
-        await api.patch(`/properties/${propertyId}/tenants/${selectedExisting._id}/reactivate`, {
+        await api.patch(`/properties/${selectedPropertyId}/tenants/${selectedExisting._id}/reactivate`, {
           fullName: form.fullName,
           phone: form.phone,
           email: form.email || undefined,
@@ -84,7 +103,7 @@ const TenantFormModal = ({
           depositPaid: form.depositPaid ? Number(form.depositPaid) : 0
         });
       } else {
-        await api.post(`/properties/${propertyId}/tenants`, {
+        await api.post(`/properties/${selectedPropertyId}/tenants`, {
           fullName: form.fullName,
           phone: form.phone,
           email: form.email || undefined,
@@ -97,8 +116,9 @@ const TenantFormModal = ({
       }
       onClose();
       if (onSaved) onSaved();
+      toast.success('Tenant saved.');
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to add tenant.');
+      toast.error(err?.response?.data?.message || 'Failed to add tenant.');
     } finally {
       setLoading(false);
     }
@@ -117,12 +137,33 @@ const TenantFormModal = ({
       <div className="w-full max-w-4xl bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="text-lg font-semibold">Add Tenant</div>
-          <button className="text-sm text-[var(--muted)]" onClick={onClose}>
-            Close
+          <button className="modal-close-btn" onClick={onClose} aria-label="Close">
+            <CloseIcon width={18} height={18} />
           </button>
         </div>
         <form onSubmit={submit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {showPropertyPicker && (
+              <div className="md:col-span-2">
+                <label className="text-xs text-[var(--muted)]">Property</label>
+                <select
+                  className="w-full px-3 py-2 mt-1"
+                  value={selectedPropertyId}
+                  onChange={(e) => {
+                    setSelectedPropertyId(e.target.value);
+                    setForm((prev) => ({ ...prev, assignedUnit: '' }));
+                  }}
+                  required
+                >
+                  <option value="">Select property</option>
+                  {properties.map((property) => (
+                    <option key={property._id} value={property._id}>
+                      {property.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="text-xs text-[var(--muted)]">Full Name</label>
               <input
@@ -133,7 +174,7 @@ const TenantFormModal = ({
                 required
               />
               <div className="text-[11px] text-[var(--muted)] mt-1">
-                Type a name to find previously deleted tenants.
+                Type a name to find previously inactive tenants.
               </div>
               {!!suggestions.length && (
                 <div className="mt-2 border border-black/10 rounded-lg bg-white shadow-sm max-h-32 overflow-y-auto">
@@ -230,10 +271,11 @@ const TenantFormModal = ({
                   className="w-full px-3 py-2 mt-1"
                   value={form.assignedUnit}
                   onChange={(e) => updateField('assignedUnit', e.target.value)}
+                  disabled={showPropertyPicker && !selectedPropertyId}
                   required
                 >
-                  <option value="">Select unit</option>
-                  {units.map((unit) => (
+                  <option value="">{showPropertyPicker && !selectedPropertyId ? 'Select a property first' : 'Select unit'}</option>
+                  {availableUnits.map((unit) => (
                     <option key={unit._id} value={unit._id}>
                       {unit.unitNumber}
                     </option>
@@ -254,16 +296,15 @@ const TenantFormModal = ({
               </button>
             </div>
           )}
-          {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
           <div className="flex items-center gap-3">
             <button
               type="submit"
-              className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+              className="btn btn-primary"
               disabled={loading}
             >
               {loading ? 'Saving...' : 'Save Tenant'}
             </button>
-            <button type="button" className="text-sm text-[var(--muted)]" onClick={onClose}>
+            <button type="button" className="btn btn-cancel" onClick={onClose}>
               Cancel
             </button>
           </div>

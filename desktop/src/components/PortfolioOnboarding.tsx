@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import api from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { toast } from '../lib/toast';
 
 type OnboardingMode = 'create' | 'join';
 
@@ -18,23 +19,15 @@ const PortfolioOnboarding = ({
   );
   const [joinCode, setJoinCode] = useState('');
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-
-  const resetFeedback = () => {
-    setMessage('');
-    setError('');
-  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    resetFeedback();
     setSaving(true);
     try {
       await api.post('/portfolio/create', { name: portfolioName.trim() });
       await onReady();
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to create portfolio right now.'));
+      toast.error(err?.response?.data?.message || t('Unable to create portfolio right now.'));
     } finally {
       setSaving(false);
     }
@@ -42,15 +35,14 @@ const PortfolioOnboarding = ({
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
-    resetFeedback();
     setSaving(true);
     try {
       await api.post('/portfolio/join-requests', { code: joinCode.trim() });
-      setMessage(t('Request sent. This screen will unlock once the owner approves it.'));
+      toast.success(t('Request sent. This screen will unlock once the owner approves it.'));
       setJoinCode('');
       await onReady();
     } catch (err: any) {
-      setError(err?.response?.data?.message || t('Unable to send join request right now.'));
+      toast.error(err?.response?.data?.message || t('Unable to send join request right now.'));
     } finally {
       setSaving(false);
     }
@@ -61,6 +53,9 @@ const PortfolioOnboarding = ({
       <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-4xl items-center justify-center">
         <div className="w-full max-w-2xl rounded-[32px] border border-black/5 bg-white/92 p-8 shadow-[0_30px_80px_rgba(15,23,42,0.16)] backdrop-blur">
           <div className="mb-8 text-center">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] text-white flex items-center justify-center font-semibold shadow-[0_10px_20px_rgba(15,118,110,0.3)]">
+              RD
+            </div>
             <div className="text-xs uppercase tracking-[0.28em] text-[var(--muted)]">{t('Portfolio Access')}</div>
             <div className="mt-3 text-3xl font-semibold">{t('Set up your workspace')}</div>
             <p className="mt-2 text-sm text-[var(--muted)]">
@@ -74,10 +69,7 @@ const PortfolioOnboarding = ({
               className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
                 mode === 'create' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--muted)]'
               }`}
-              onClick={() => {
-                resetFeedback();
-                setMode('create');
-              }}
+              onClick={() => setMode('create')}
             >
               {t('Create Portfolio')}
             </button>
@@ -86,10 +78,7 @@ const PortfolioOnboarding = ({
               className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
                 mode === 'join' ? 'bg-white text-[var(--text)] shadow-sm' : 'text-[var(--muted)]'
               }`}
-              onClick={() => {
-                resetFeedback();
-                setMode('join');
-              }}
+              onClick={() => setMode('join')}
             >
               {t('Join Existing')}
             </button>
@@ -109,7 +98,7 @@ const PortfolioOnboarding = ({
               </div>
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
+                className="btn btn-primary w-full !py-3"
                 disabled={saving}
               >
                 {saving ? t('Creating...') : t('Create Portfolio')}
@@ -130,7 +119,7 @@ const PortfolioOnboarding = ({
               </div>
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-[var(--accent)] px-4 py-3 text-sm font-medium text-white disabled:opacity-60"
+                className="btn btn-primary w-full !py-3"
                 disabled={saving}
               >
                 {saving ? t('Sending...') : t('Send Request')}
@@ -138,19 +127,9 @@ const PortfolioOnboarding = ({
             </form>
           )}
 
-          {(message || error) && (
-            <div
-              className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
-                error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              }`}
-            >
-              {error || message}
-            </div>
-          )}
-
           <button
             type="button"
-            className="mt-4 w-full rounded-2xl border border-black/10 px-4 py-3 text-sm hover:bg-black/5"
+            className="btn btn-secondary w-full !py-3 mt-4"
             onClick={() => void onReady()}
             disabled={saving}
           >

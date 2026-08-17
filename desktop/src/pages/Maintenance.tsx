@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
+import SortableTable, { type TableColumn } from '../components/SortableTable';
+import { UtilitiesIcon } from '../components/icons';
 import { formatDate } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
 
@@ -45,44 +47,35 @@ const Maintenance = () => {
     loadRecords();
   }, [propertyId, properties, dataVersion]);
 
+  const columns: TableColumn<any>[] = [
+    {
+      key: 'property',
+      label: 'Property',
+      accessor: (record) => record._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'
+    },
+    { key: 'date', label: 'Date', accessor: (record) => new Date(record.date).getTime(), render: (record) => formatDate(record.date) },
+    { key: 'category', label: 'Category', accessor: (record) => record.category },
+    { key: 'amount', label: 'Amount', accessor: (record) => record.amount, render: (record) => `₹${record.amount}` },
+    { key: 'paidTo', label: 'Paid To', accessor: (record) => record.paidTo || '-' }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end">
         <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
       </div>
 
-      <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="text-left border-b border-black/5">
-            <tr>
-              <th className="px-4 py-3">Property</th>
-              <th className="px-4 py-3">Date</th>
-              <th className="px-4 py-3">Category</th>
-              <th className="px-4 py-3">Amount</th>
-              <th className="px-4 py-3">Paid To</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.map((record) => (
-              <tr key={record._id} className="border-b border-black/5">
-                <td className="px-4 py-3">{record._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'}</td>
-                <td className="px-4 py-3">{formatDate(record.date)}</td>
-                <td className="px-4 py-3">{record.category}</td>
-                <td className="px-4 py-3">₹{record.amount}</td>
-                <td className="px-4 py-3">{record.paidTo || '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!records.length && (
-          <div className="px-4 py-6 text-[var(--muted)]">
-            No maintenance records found.
-          </div>
-        )}
-      </div>
+      <SortableTable
+        columns={columns}
+        data={records}
+        rowKey={(record) => record._id}
+        searchPlaceholder="Search by category, paid to..."
+        emptyIcon={<UtilitiesIcon width={22} height={22} />}
+        emptyTitle="No maintenance records found"
+        emptyDescription="Expenses logged for this property will appear here."
+      />
     </div>
   );
 };
 
 export default Maintenance;
-

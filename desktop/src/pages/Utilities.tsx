@@ -7,7 +7,7 @@ const Utilities = () => {
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <button
-          className="bg-white rounded-2xl border border-black/5 p-6 text-left shadow-sm hover:shadow-md transition"
+          className="card card-hover p-6 text-left"
           onClick={() => navigate('/utilities/electricity-readings')}
         >
           <div className="text-sm text-[var(--muted)]">Electricity Reading</div>

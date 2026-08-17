@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { useDataVersion } from '../lib/dataSync';
 import Badge, { type BadgeTone } from '../components/Badge';
+import EmptyState from '../components/EmptyState';
+import { BuildingIcon, CloseIcon } from '../components/icons';
+import { toast } from '../lib/toast';
+import { confirmDialog } from '../lib/confirmDialog';
 
 const propertyTypeLabels: Record<string, string> = {
   building: 'Building',
@@ -26,7 +30,6 @@ const Properties = () => {
   const [tab, setTab] = useState<'active' | 'deleted'>('active');
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const dataVersion = useDataVersion();
   const [form, setForm] = useState({
     name: '',
@@ -56,7 +59,6 @@ const Properties = () => {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
     try {
       const payload = {
@@ -80,8 +82,9 @@ const Properties = () => {
         commonElectricityCharge: ''
       });
       await loadProperties();
+      toast.success('Property added.');
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to add property.');
+      toast.error(err?.response?.data?.message || 'Failed to add property.');
     } finally {
       setLoading(false);
     }
@@ -89,22 +92,24 @@ const Properties = () => {
 
   const restoreProperty = async (propertyId: string, propertyName?: string) => {
     if (!propertyId) return;
-    const ok = window.confirm(`Restore ${propertyName ? `"${propertyName}"` : 'this property'}?`);
+    const ok = await confirmDialog({
+      title: `Restore ${propertyName ? `"${propertyName}"` : 'this property'}?`,
+      confirmLabel: 'Restore'
+    });
     if (!ok) return;
-    setError('');
     setLoading(true);
     try {
       await api.patch(`/properties/${propertyId}/restore`);
       await loadProperties();
+      toast.success('Property restored.');
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to restore property.');
+      toast.error(err?.response?.data?.message || 'Failed to restore property.');
     } finally {
       setLoading(false);
     }
   };
 
   const openAdd = () => {
-    setError('');
     setForm({
       name: '',
       propertyType: 'building',
@@ -122,7 +127,6 @@ const Properties = () => {
 
   const closeModal = () => {
     setShowAdd(false);
-    setError('');
   };
 
   return (
@@ -147,11 +151,11 @@ const Properties = () => {
             }`}
             onClick={() => setTab('deleted')}
           >
-            Deleted
+            Inactive
           </button>
         </div>
         <button
-          className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium shadow-[0_10px_20px_rgba(15,118,110,0.25)]"
+          className="btn btn-primary"
           onClick={openAdd}
         >
           Add Property
@@ -163,8 +167,8 @@ const Properties = () => {
         <div className="w-full max-w-4xl bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="text-lg font-semibold">New Property</div>
-              <button className="text-sm text-[var(--muted)]" onClick={closeModal}>
-                Close
+              <button className="modal-close-btn" onClick={closeModal} aria-label="Close">
+                <CloseIcon width={18} height={18} />
               </button>
             </div>
             <form onSubmit={submit} className="space-y-4">
@@ -270,18 +274,17 @@ const Properties = () => {
                   />
                 </div>
               </div>
-              {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
               <div className="flex items-center gap-3">
                 <button
                   type="submit"
-                  className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+                  className="btn btn-primary"
                   disabled={loading}
                 >
                   {loading ? 'Saving...' : 'Save Property'}
                 </button>
                 <button
                   type="button"
-                  className="text-sm text-[var(--muted)]"
+                  className="btn btn-cancel"
                   onClick={closeModal}
                 >
                   Cancel
@@ -294,7 +297,7 @@ const Properties = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {properties.map((property) => (
-          <div key={property._id} className="bg-white rounded-2xl border border-black/5 p-5 shadow-sm">
+          <div key={property._id} className="card p-5">
             <div className="flex items-start justify-between gap-2">
               <div className="text-lg font-semibold">{property.name}</div>
               <Badge tone={propertyTypeTone[property.propertyType] || 'neutral'}>
@@ -305,34 +308,40 @@ const Properties = () => {
             <div className="text-xs text-[var(--muted)] mt-2">{property.city}, {property.state}</div>
             <div className="mt-4 flex items-center gap-2">
               <button
-                className="text-sm px-3 py-1.5 rounded-lg border border-black/10"
+                className="btn btn-sm btn-info"
                 onClick={() => navigate(`/properties/${property._id}`)}
               >
                 View
               </button>
               {tab === 'active' && (
                 <button
-                  className="text-sm px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-red-50"
+                  className="btn btn-sm btn-danger"
                   onClick={async () => {
-                    const ok = window.confirm(
-                      `Delete ${property.name ? `"${property.name}"` : 'this property'}? This will hide it from all lists.`
-                    );
+                    const ok = await confirmDialog({
+                      title: `Mark ${property.name ? `"${property.name}"` : 'this property'} as inactive?`,
+                      description: 'This will hide it from active lists. You can restore it from the Inactive tab.',
+                      confirmLabel: 'Deactivate',
+                      danger: true
+                    });
                     if (!ok) return;
                     setLoading(true);
                     try {
                       await api.delete(`/properties/${property._id}`);
                       await loadProperties();
+                      toast.success('Property marked inactive.');
+                    } catch (err: any) {
+                      toast.error(err?.response?.data?.message || 'Failed to update property.');
                     } finally {
                       setLoading(false);
                     }
                   }}
                 >
-                  Delete
+                  Deactivate
                 </button>
               )}
               {tab === 'deleted' && (
                 <button
-                  className="text-sm px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-600 bg-emerald-50"
+                  className="btn btn-sm btn-success"
                   onClick={() => restoreProperty(property._id, property.name)}
                 >
                   Restore
@@ -342,8 +351,12 @@ const Properties = () => {
           </div>
         ))}
         {!properties.length && (
-          <div className="text-[var(--muted)]">
-            {tab === 'active' ? 'No active properties found.' : 'No deleted properties found.'}
+          <div className="md:col-span-2 card">
+            <EmptyState
+              icon={<BuildingIcon width={22} height={22} />}
+              title={tab === 'active' ? 'No active properties found' : 'No inactive properties found'}
+              description={tab === 'active' ? 'Add your first property to start managing units and tenants.' : 'Properties you deactivate will show up here.'}
+            />
           </div>
         )}
       </div>

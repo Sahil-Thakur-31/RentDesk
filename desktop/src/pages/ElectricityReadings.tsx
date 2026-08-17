@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
+import SortableTable, { type TableColumn } from '../components/SortableTable';
+import { UnitsIcon } from '../components/icons';
 import { shiftMonthValue } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
+import { toast } from '../lib/toast';
 
 type ReadingRow = {
   propertyId: string;
@@ -42,7 +45,6 @@ const ElectricityReadings = () => {
   const [rows, setRows] = useState<ReadingRow[]>([]);
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const dataVersion = useDataVersion();
 
   useEffect(() => {
@@ -135,16 +137,15 @@ const ElectricityReadings = () => {
 
   const saveAll = async () => {
     if (!month) {
-      setError('Please select a month.');
+      toast.error('Please select a month.');
       return;
     }
 
     if (rows.some((row) => row.isInvalid)) {
-      setError('Please fix the highlighted readings before saving.');
+      toast.error('Please fix the highlighted readings before saving.');
       return;
     }
 
-    setError('');
     setLoading(true);
 
     try {
@@ -205,12 +206,46 @@ const ElectricityReadings = () => {
           )
         );
       }
+      toast.success('Readings saved.');
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to save readings.');
+      toast.error(err?.response?.data?.message || 'Failed to save readings.');
     } finally {
       setLoading(false);
     }
   };
+
+  const columns: TableColumn<ReadingRow>[] = [
+    { key: 'property', label: 'Property', accessor: (row) => row.propertyName },
+    { key: 'unit', label: 'Unit', accessor: (row) => row.unitNumber },
+    { key: 'lastReading', label: 'Last Reading', accessor: (row) => row.lastReading },
+    {
+      key: 'currentReading',
+      label: 'Current Reading',
+      accessor: (row) => (row.currentReading ? Number(row.currentReading) : null),
+      sortable: false,
+      render: (row) => (
+        <>
+          <input
+            className={`border rounded-lg px-3 py-2 text-sm w-32 ${
+              row.isInvalid ? 'border-red-300 bg-red-50' : 'border-black/10'
+            }`}
+            value={row.currentReading}
+            onChange={(e) => updateReading(row.unitId, e.target.value)}
+            placeholder="Reading"
+          />
+          {row.invalidMessage ? (
+            <div className="mt-1 text-xs text-red-600">{row.invalidMessage}</div>
+          ) : row.nextReading != null ? (
+            <div className="mt-1 text-xs text-[var(--muted)]">
+              Next saved reading: {row.nextReading}
+            </div>
+          ) : null}
+        </>
+      )
+    },
+    { key: 'calculatedUnits', label: 'Units Used', accessor: (row) => row.calculatedUnits },
+    { key: 'calculatedAmount', label: 'Amount', accessor: (row) => row.calculatedAmount, render: (row) => `₹${row.calculatedAmount}` }
+  ];
 
   return (
     <div className="space-y-6">
@@ -241,7 +276,7 @@ const ElectricityReadings = () => {
           </button>
         </div>
         <button
-          className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+          className="btn btn-primary"
           onClick={saveAll}
           disabled={loading}
         >
@@ -249,51 +284,16 @@ const ElectricityReadings = () => {
         </button>
       </div>
 
-      <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="text-left border-b border-black/5">
-            <tr>
-              <th className="px-4 py-3">Property</th>
-              <th className="px-4 py-3">Unit</th>
-              <th className="px-4 py-3">Last Reading</th>
-              <th className="px-4 py-3">Current Reading</th>
-              <th className="px-4 py-3">Units Used</th>
-              <th className="px-4 py-3">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.unitId} className="border-b border-black/5">
-                <td className="px-4 py-3">{row.propertyName}</td>
-                <td className="px-4 py-3">{row.unitNumber}</td>
-                <td className="px-4 py-3">{row.lastReading}</td>
-                <td className="px-4 py-3">
-                  <input
-                    className={`border rounded-lg px-3 py-2 text-sm w-32 ${
-                      row.isInvalid ? 'border-red-300 bg-red-50' : 'border-black/10'
-                    }`}
-                    value={row.currentReading}
-                    onChange={(e) => updateReading(row.unitId, e.target.value)}
-                    placeholder="Reading"
-                  />
-                  {row.invalidMessage ? (
-                    <div className="mt-1 text-xs text-red-600">{row.invalidMessage}</div>
-                  ) : row.nextReading != null ? (
-                    <div className="mt-1 text-xs text-[var(--muted)]">
-                      Next saved reading: {row.nextReading}
-                    </div>
-                  ) : null}
-                </td>
-                <td className="px-4 py-3">{row.calculatedUnits}</td>
-                <td className="px-4 py-3">{`\u20B9${row.calculatedAmount}`}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!rows.length && <div className="px-4 py-6 text-[var(--muted)]">No units found.</div>}
-      </div>
+      <SortableTable
+        columns={columns}
+        data={rows}
+        rowKey={(row) => row.unitId}
+        searchPlaceholder="Search by property or unit..."
+        emptyIcon={<UnitsIcon width={22} height={22} />}
+        emptyTitle="No units found"
+        emptyDescription="Add units to this property to record meter readings."
+      />
 
-      {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
       <div className="text-xs text-[var(--muted)]">
         You can edit any month. The reading must stay above the previous month and not exceed the next saved month.
       </div>

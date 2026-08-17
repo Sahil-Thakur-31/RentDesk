@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import Badge, { type BadgeTone } from '../components/Badge';
+import SortableTable, { type TableColumn } from '../components/SortableTable';
+import { UtilitiesIcon } from '../components/icons';
 import { formatMonthKey } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
 
@@ -52,48 +54,54 @@ const UtilityBills = () => {
     loadBills();
   }, [propertyId, properties, dataVersion]);
 
+  const columns: TableColumn<any>[] = [
+    {
+      key: 'property',
+      label: 'Property',
+      accessor: (bill) => bill._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'
+    },
+    {
+      key: 'billType',
+      label: 'Type',
+      accessor: (bill) => bill.billType,
+      filterOptions: [
+        { value: 'electricity', label: 'Electricity' },
+        { value: 'water', label: 'Water' }
+      ]
+    },
+    { key: 'month', label: 'Month', accessor: (bill) => bill.month, render: (bill) => formatMonthKey(bill.month) },
+    { key: 'units', label: 'Units', accessor: (bill) => bill.unitsConsumed },
+    { key: 'amount', label: 'Amount', accessor: (bill) => bill.amount, render: (bill) => `₹${bill.amount}` },
+    {
+      key: 'status',
+      label: 'Status',
+      accessor: (bill) => bill.status,
+      filterOptions: [
+        { value: 'paid', label: 'Paid' },
+        { value: 'partial', label: 'Partial' },
+        { value: 'unpaid', label: 'Unpaid' }
+      ],
+      render: (bill) => <Badge tone={statusTone(bill.status)}>{bill.status}</Badge>
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end">
         <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
       </div>
 
-      <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="text-left border-b border-black/5">
-            <tr>
-              <th className="px-4 py-3">Property</th>
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Month</th>
-              <th className="px-4 py-3">Units</th>
-              <th className="px-4 py-3">Amount</th>
-              <th className="px-4 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bills.map((bill) => (
-              <tr key={bill._id} className="border-b border-black/5">
-                <td className="px-4 py-3">{bill._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'}</td>
-                <td className="px-4 py-3">{bill.billType}</td>
-                <td className="px-4 py-3">{formatMonthKey(bill.month)}</td>
-                <td className="px-4 py-3">{bill.unitsConsumed}</td>
-                <td className="px-4 py-3">₹{bill.amount}</td>
-                <td className="px-4 py-3">
-                  <Badge tone={statusTone(bill.status)}>{bill.status}</Badge>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!bills.length && (
-          <div className="px-4 py-6 text-[var(--muted)]">
-            No utility bills found.
-          </div>
-        )}
-      </div>
+      <SortableTable
+        columns={columns}
+        data={bills}
+        rowKey={(bill) => bill._id}
+        searchPlaceholder="Search by property, type..."
+        emptyIcon={<UtilitiesIcon width={22} height={22} />}
+        emptyTitle="No utility bills found"
+        emptyDescription="Record an electricity or water reading to generate a bill for a unit."
+      />
     </div>
   );
 };
 
 export default UtilityBills;
-

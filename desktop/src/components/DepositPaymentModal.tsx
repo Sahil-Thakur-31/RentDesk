@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
+import { CloseIcon } from './icons';
 import { getCurrentDateValue } from '../lib/dateFormat';
+import { toast } from '../lib/toast';
 
 type DepositPaymentModalProps = {
   open: boolean;
@@ -29,7 +31,6 @@ const DepositPaymentModal = ({
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(getCurrentDateValue());
   const [notes, setNotes] = useState('');
-  const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -37,7 +38,6 @@ const DepositPaymentModal = ({
     setAmount(remaining > 0 ? String(remaining) : '');
     setDate(getCurrentDateValue());
     setNotes('');
-    setError('');
   }, [open, remaining]);
 
   if (!open) return null;
@@ -46,15 +46,14 @@ const DepositPaymentModal = ({
     e.preventDefault();
     const numericAmount = Number(amount || 0);
     if (!numericAmount || numericAmount <= 0) {
-      setError('Enter a valid deposit amount.');
+      toast.error('Enter a valid deposit amount.');
       return;
     }
     if (numericAmount > remaining) {
-      setError('Deposit amount cannot be greater than remaining deposit.');
+      toast.error('Deposit amount cannot be greater than remaining deposit.');
       return;
     }
 
-    setError('');
     setSaving(true);
     try {
       await api.post(`/properties/${propertyId}/payments`, {
@@ -67,8 +66,9 @@ const DepositPaymentModal = ({
       });
       onClose();
       onSaved?.();
+      toast.success('Deposit recorded.');
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to record deposit.');
+      toast.error(err?.response?.data?.message || 'Failed to record deposit.');
     } finally {
       setSaving(false);
     }
@@ -82,23 +82,23 @@ const DepositPaymentModal = ({
             <div className="text-lg font-semibold">Collect Deposit</div>
             <div className="text-sm text-[var(--muted)]">{tenantName}</div>
           </div>
-          <button className="text-sm text-[var(--muted)]" onClick={onClose}>
-            Close
+          <button className="modal-close-btn" onClick={onClose} aria-label="Close">
+            <CloseIcon width={18} height={18} />
           </button>
         </div>
 
         <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
           <div className="rounded-2xl bg-black/5 px-4 py-3">
             <div className="text-xs text-[var(--muted)]">Required</div>
-            <div className="font-semibold">{`\u20B9${requiredDeposit}`}</div>
+            <div className="font-semibold">{`₹${requiredDeposit}`}</div>
           </div>
           <div className="rounded-2xl bg-black/5 px-4 py-3">
             <div className="text-xs text-[var(--muted)]">Paid</div>
-            <div className="font-semibold">{`\u20B9${paidDeposit}`}</div>
+            <div className="font-semibold">{`₹${paidDeposit}`}</div>
           </div>
           <div className="rounded-2xl bg-black/5 px-4 py-3">
             <div className="text-xs text-[var(--muted)]">Remaining</div>
-            <div className="font-semibold">{`\u20B9${remaining}`}</div>
+            <div className="font-semibold">{`₹${remaining}`}</div>
           </div>
         </div>
 
@@ -132,16 +132,15 @@ const DepositPaymentModal = ({
               placeholder="Security deposit collected"
             />
           </div>
-          {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
           <div className="flex items-center gap-3">
             <button
               type="submit"
-              className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+              className="btn btn-primary"
               disabled={saving || remaining <= 0}
             >
               {saving ? 'Saving...' : 'Save Deposit'}
             </button>
-            <button type="button" className="text-sm text-[var(--muted)]" onClick={onClose}>
+            <button type="button" className="btn btn-cancel" onClick={onClose}>
               Cancel
             </button>
           </div>

@@ -4,6 +4,10 @@ import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import { useDataVersion } from '../lib/dataSync';
 import Badge, { type BadgeTone } from '../components/Badge';
+import SortableTable, { type TableColumn } from '../components/SortableTable';
+import { CloseIcon, UnitsIcon } from '../components/icons';
+import { toast } from '../lib/toast';
+import { confirmDialog } from '../lib/confirmDialog';
 
 const unitTypeLabels: Record<string, string> = {
   single_room: 'Single Room',
@@ -36,8 +40,8 @@ const Units = () => {
   const [units, setUnits] = useState<any[]>([]);
   const [tab, setTab] = useState<'active' | 'deleted'>('active');
   const [showAdd, setShowAdd] = useState(false);
+  const [formPropertyId, setFormPropertyId] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const dataVersion = useDataVersion();
   const [unitForm, setUnitForm] = useState({
     unitNumber: '',
@@ -98,11 +102,13 @@ const Units = () => {
 
   const addUnit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!propertyId) return;
-    setError('');
+    if (!formPropertyId) {
+      toast.error('Please select a property.');
+      return;
+    }
     setLoading(true);
     try {
-      await api.post(`/properties/${propertyId}/units`, {
+      await api.post(`/properties/${formPropertyId}/units`, {
         unitNumber: unitForm.unitNumber,
         unitType: unitForm.unitType,
         floor: unitForm.floor || undefined,
@@ -123,12 +129,91 @@ const Units = () => {
         lastMeterReading: ''
       });
       setShowAdd(false);
+      toast.success('Unit added.');
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to add unit.');
+      toast.error(err?.response?.data?.message || 'Failed to add unit.');
     } finally {
       setLoading(false);
     }
   };
+
+  const unitColumns: TableColumn<any>[] = [
+    {
+      key: 'property',
+      label: 'Property',
+      accessor: (unit) => unit._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'
+    },
+    { key: 'unitNumber', label: 'Unit', accessor: (unit) => unit.unitNumber },
+    { key: 'floor', label: 'Floor', accessor: (unit) => unit.floor || '-' },
+    { key: 'meterReading', label: 'Meter Reading', accessor: (unit) => unit.lastMeterReading ?? 0 },
+    { key: 'rent', label: 'Rent', accessor: (unit) => unit.monthlyRent, render: (unit) => `₹${unit.monthlyRent}` },
+    {
+      key: 'status',
+      label: 'Status',
+      accessor: (unit) => formatUnitStatus(unit.status),
+      filterOptions: [
+        { value: 'Occupied', label: 'Occupied' },
+        { value: 'Vacant', label: 'Vacant' },
+        { value: 'Under Repair', label: 'Under Repair' }
+      ],
+      render: (unit) => <Badge tone={unitStatusTone(unit.status)}>{formatUnitStatus(unit.status)}</Badge>
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      sortable: false,
+      render: (unit) => (
+        <div className="flex items-center gap-2">
+          <button
+            className="btn btn-sm btn-info"
+            onClick={() => navigate(`/properties/${unit._propertyId || propertyId}/units/${unit._id}`)}
+          >
+            View
+          </button>
+          {tab === 'active' ? (
+            <button
+              className="btn btn-sm btn-danger"
+              onClick={async () => {
+                const ok = await confirmDialog({
+                  title: `Mark unit "${unit.unitNumber}" as inactive?`,
+                  description: 'This will hide it from active lists. You can restore it from the Inactive tab.',
+                  confirmLabel: 'Deactivate',
+                  danger: true
+                });
+                if (!ok) return;
+                try {
+                  const targetPropertyId = unit._propertyId || propertyId;
+                  await api.delete(`/properties/${targetPropertyId}/units/${unit._id}`);
+                  await loadUnits(propertyId, 'active');
+                  toast.success('Unit marked inactive.');
+                } catch (err: any) {
+                  toast.error(err?.response?.data?.message || 'Failed to update unit.');
+                }
+              }}
+            >
+              Deactivate
+            </button>
+          ) : (
+            <button
+              className="btn btn-sm btn-success"
+              onClick={async () => {
+                try {
+                  const targetPropertyId = unit._propertyId || propertyId;
+                  await api.patch(`/properties/${targetPropertyId}/units/${unit._id}/restore`);
+                  await loadUnits(propertyId, 'deleted');
+                  toast.success('Unit restored.');
+                } catch (err: any) {
+                  toast.error(err?.response?.data?.message || 'Failed to restore unit.');
+                }
+              }}
+            >
+              Restore
+            </button>
+          )}
+        </div>
+      )
+    }
+  ];
 
   return (
     <div className="space-y-6">
@@ -152,102 +237,61 @@ const Units = () => {
             }`}
             onClick={() => setTab('deleted')}
           >
-            Deleted
+            Inactive
           </button>
         </div>
         <div className="flex items-center gap-3">
           <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
           <button
-            className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
-            onClick={() => setShowAdd(true)}
-            disabled={!propertyId || tab !== 'active'}
+            className="btn btn-primary"
+            onClick={() => {
+              setFormPropertyId(propertyId);
+              setShowAdd(true);
+            }}
+            disabled={tab !== 'active'}
           >
             Add Unit
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="text-left border-b border-black/5">
-            <tr>
-              <th className="px-4 py-3">Property</th>
-              <th className="px-4 py-3">Unit</th>
-              <th className="px-4 py-3">Floor</th>
-              <th className="px-4 py-3">Meter Reading</th>
-              <th className="px-4 py-3">Rent</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {units.map((unit) => (
-              <tr key={unit._id} className="border-b border-black/5">
-                <td className="px-4 py-3">{unit._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'}</td>
-                <td className="px-4 py-3">{unit.unitNumber}</td>
-                <td className="px-4 py-3">{unit.floor || '-'}</td>
-                <td className="px-4 py-3">{unit.lastMeterReading ?? 0}</td>
-                <td className="px-4 py-3">₹{unit.monthlyRent}</td>
-                <td className="px-4 py-3">
-                  <Badge tone={unitStatusTone(unit.status)}>{formatUnitStatus(unit.status)}</Badge>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="text-xs px-3 py-1.5 rounded-lg border border-black/10"
-                      onClick={() => navigate(`/properties/${unit._propertyId || propertyId}/units/${unit._id}`)}
-                    >
-                      View
-                    </button>
-                    {tab === 'active' ? (
-                      <button
-                        className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-red-50"
-                        onClick={async () => {
-                          const ok = window.confirm(`Delete unit "${unit.unitNumber}"? This will hide it from lists.`);
-                          if (!ok) return;
-                          const targetPropertyId = unit._propertyId || propertyId;
-                          await api.delete(`/properties/${targetPropertyId}/units/${unit._id}`);
-                          await loadUnits(propertyId, 'active');
-                        }}
-                      >
-                        Delete
-                      </button>
-                    ) : (
-                      <button
-                        className="text-xs px-3 py-1.5 rounded-lg border border-emerald-200 text-emerald-600 bg-emerald-50"
-                        onClick={async () => {
-                          const targetPropertyId = unit._propertyId || propertyId;
-                          await api.patch(`/properties/${targetPropertyId}/units/${unit._id}/restore`);
-                          await loadUnits(propertyId, 'deleted');
-                        }}
-                      >
-                        Restore
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!units.length && (
-          <div className="px-4 py-6 text-[var(--muted)]">
-            {tab === 'active' ? 'No active units found.' : 'No deleted units found.'}
-          </div>
-        )}
-      </div>
+      <SortableTable
+        columns={unitColumns}
+        data={units}
+        rowKey={(unit) => unit._id}
+        searchPlaceholder="Search units by number, floor, property..."
+        emptyIcon={<UnitsIcon width={22} height={22} />}
+        emptyTitle={tab === 'active' ? 'No active units found' : 'No inactive units found'}
+        emptyDescription={tab === 'active' ? 'Add a unit to this property to start tracking rent and occupancy.' : 'Units you deactivate will show up here.'}
+      />
 
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-6">
           <div className="w-full max-w-4xl bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="text-lg font-semibold">Add Unit</div>
-              <button className="text-sm text-[var(--muted)]" onClick={() => setShowAdd(false)}>
-                Close
+              <button className="modal-close-btn" onClick={() => setShowAdd(false)} aria-label="Close">
+                <CloseIcon width={18} height={18} />
               </button>
             </div>
             <form onSubmit={addUnit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2">
+                  <label className="text-xs text-[var(--muted)]">Property</label>
+                  <select
+                    className="w-full px-3 py-2 mt-1"
+                    value={formPropertyId}
+                    onChange={(e) => setFormPropertyId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select property</option>
+                    {properties.map((property) => (
+                      <option key={property._id} value={property._id}>
+                        {property.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Unit Number</label>
                   <input
@@ -320,16 +364,15 @@ const Units = () => {
                   />
                 </div>
               </div>
-              {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
               <div className="flex items-center gap-3">
                 <button
                   type="submit"
-                  className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+                  className="btn btn-primary"
                   disabled={loading}
                 >
                   {loading ? 'Saving...' : 'Save Unit'}
                 </button>
-                <button type="button" className="text-sm text-[var(--muted)]" onClick={() => setShowAdd(false)}>
+                <button type="button" className="btn btn-cancel" onClick={() => setShowAdd(false)}>
                   Cancel
                 </button>
               </div>

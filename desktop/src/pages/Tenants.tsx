@@ -3,8 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import TenantFormModal from '../components/TenantFormModal';
-import Badge from '../components/Badge';
+import SortableTable, { type TableColumn } from '../components/SortableTable';
+import { TenantsIcon } from '../components/icons';
 import { useDataVersion } from '../lib/dataSync';
+import { toast } from '../lib/toast';
+import { confirmDialog } from '../lib/confirmDialog';
 
 const Tenants = () => {
   const navigate = useNavigate();
@@ -56,7 +59,7 @@ const Tenants = () => {
     const loadUnits = async () => {
       if (propertyId) {
         const response = await api.get(`/properties/${propertyId}/units`);
-        setUnits(response.data);
+        setUnits((response.data || []).map((unit: any) => ({ ...unit, _propertyId: propertyId })));
         return;
       }
       if (!properties.length) {
@@ -85,7 +88,7 @@ const Tenants = () => {
         api.get(`/properties/${propertyId}/units`)
       ]);
       setTenants(tenantsRes.data);
-      setUnits(unitsRes.data);
+      setUnits((unitsRes.data || []).map((unit: any) => ({ ...unit, _propertyId: propertyId })));
       return;
     }
 
@@ -113,6 +116,55 @@ const Tenants = () => {
     );
   };
 
+  const tenantColumns: TableColumn<any>[] = [
+    {
+      key: 'property',
+      label: 'Property',
+      accessor: (tenant) => tenant._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'
+    },
+    { key: 'fullName', label: 'Name', accessor: (tenant) => tenant.fullName },
+    { key: 'phone', label: 'Phone', accessor: (tenant) => tenant.phone },
+    { key: 'unit', label: 'Unit', accessor: (tenant) => tenant.assignedUnit?.unitNumber || '-' },
+    {
+      key: 'actions',
+      label: 'Actions',
+      sortable: false,
+      render: (tenant) => (
+        <div className="flex items-center gap-2">
+          <button
+            className="btn btn-sm btn-info"
+            onClick={() => navigate(`/properties/${tenant._propertyId || propertyId}/tenants/${tenant._id}`)}
+          >
+            View
+          </button>
+          {tab === 'active' && (
+            <button
+              className="btn btn-sm btn-danger"
+              onClick={async () => {
+                const ok = await confirmDialog({
+                  title: `Mark "${tenant.fullName}" as inactive?`,
+                  description: 'This moves them out of the active tenant list. You can find them again from the Inactive tab.',
+                  confirmLabel: 'Deactivate',
+                  danger: true
+                });
+                if (!ok) return;
+                try {
+                  await api.patch(`/properties/${tenant._propertyId || propertyId}/tenants/${tenant._id}/move-out`);
+                  await refresh();
+                  toast.success('Tenant marked inactive.');
+                } catch (err: any) {
+                  toast.error(err?.response?.data?.message || 'Failed to update tenant.');
+                }
+              }}
+            >
+              Deactivate
+            </button>
+          )}
+        </div>
+      )
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -135,83 +187,36 @@ const Tenants = () => {
             }`}
             onClick={() => setTab('deleted')}
           >
-            Deleted
+            Inactive
           </button>
         </div>
         <div className="flex items-center gap-3">
           <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
           <button
-            className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+            className="btn btn-primary"
             onClick={() => setShowAdd(true)}
-            disabled={!propertyId || tab !== 'active'}
+            disabled={tab !== 'active'}
           >
             Add Tenant
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="text-left border-b border-black/5">
-            <tr>
-              <th className="px-4 py-3">Property</th>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Phone</th>
-              <th className="px-4 py-3">Unit</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tenants.map((tenant) => (
-              <tr key={tenant._id} className="border-b border-black/5">
-                <td className="px-4 py-3">{tenant._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'}</td>
-                <td className="px-4 py-3">{tenant.fullName}</td>
-                <td className="px-4 py-3">{tenant.phone}</td>
-                <td className="px-4 py-3">{tenant.assignedUnit?.unitNumber || '-'}</td>
-                <td className="px-4 py-3">
-                  <Badge tone={tenant.isActive ? 'success' : 'neutral'}>
-                    {tenant.isActive ? 'Active' : 'Moved Out'}
-                  </Badge>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="text-xs px-3 py-1.5 rounded-lg border border-black/10"
-                      onClick={() => navigate(`/properties/${tenant._propertyId || propertyId}/tenants/${tenant._id}`)}
-                    >
-                      View
-                    </button>
-                    {tab === 'active' && (
-                      <button
-                        className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-red-50"
-                        onClick={async () => {
-                          const ok = window.confirm(`Remove "${tenant.fullName}" from this property?`);
-                          if (!ok) return;
-                          await api.patch(`/properties/${tenant._propertyId || propertyId}/tenants/${tenant._id}/move-out`);
-                          await refresh();
-                        }}
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!tenants.length && (
-          <div className="px-4 py-6 text-[var(--muted)]">
-            No tenants found.
-          </div>
-        )}
-      </div>
+      <SortableTable
+        columns={tenantColumns}
+        data={tenants}
+        rowKey={(tenant) => tenant._id}
+        searchPlaceholder="Search tenants by name, phone, unit..."
+        emptyIcon={<TenantsIcon width={22} height={22} />}
+        emptyTitle="No tenants found"
+        emptyDescription="Add a tenant to a unit to start tracking rent and payments."
+      />
 
       <TenantFormModal
         open={showAdd}
         onClose={() => setShowAdd(false)}
         propertyId={propertyId}
+        properties={properties}
         units={units}
         onSaved={refresh}
       />

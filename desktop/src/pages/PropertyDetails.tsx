@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../lib/api';
+import Badge, { type BadgeTone } from '../components/Badge';
+import SortableTable, { type TableColumn } from '../components/SortableTable';
+import { CloseIcon, UnitsIcon } from '../components/icons';
 import { useDataVersion } from '../lib/dataSync';
+import { toast } from '../lib/toast';
+import { confirmDialog } from '../lib/confirmDialog';
 
 const unitTypeLabels: Record<string, string> = {
   single_room: 'Single Room',
@@ -21,6 +26,12 @@ const formatUnitStatus = (status: string) => {
   return 'Vacant';
 };
 
+const unitStatusTone = (status: string): BadgeTone => {
+  if (status === 'maintenance') return 'warning';
+  if (status === 'occupied') return 'success';
+  return 'neutral';
+};
+
 const PropertyDetails = () => {
   const { propertyId } = useParams();
   const navigate = useNavigate();
@@ -30,7 +41,6 @@ const PropertyDetails = () => {
   const [loading, setLoading] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showAddUnit, setShowAddUnit] = useState(false);
-  const [error, setError] = useState('');
   const dataVersion = useDataVersion();
   const [editForm, setEditForm] = useState({
     name: '',
@@ -97,7 +107,6 @@ const PropertyDetails = () => {
   const saveProperty = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!propertyId) return;
-    setError('');
     setLoading(true);
     try {
       const payload = {
@@ -109,8 +118,9 @@ const PropertyDetails = () => {
       const response = await api.patch(`/properties/${propertyId}`, payload);
       setProperty(response.data);
       setShowEdit(false);
+      toast.success('Property updated.');
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to update property.');
+      toast.error(err?.response?.data?.message || 'Failed to update property.');
     } finally {
       setLoading(false);
     }
@@ -118,12 +128,20 @@ const PropertyDetails = () => {
 
   const deleteProperty = async () => {
     if (!propertyId || !property?.name) return;
-    const ok = window.confirm(`Delete "${property.name}"? This will hide it from all lists.`);
+    const ok = await confirmDialog({
+      title: `Mark "${property.name}" as inactive?`,
+      description: 'This will hide it from active lists. You can restore it later.',
+      confirmLabel: 'Deactivate',
+      danger: true
+    });
     if (!ok) return;
     setLoading(true);
     try {
       await api.delete(`/properties/${propertyId}`);
       navigate('/properties');
+      toast.success('Property marked inactive.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to update property.');
     } finally {
       setLoading(false);
     }
@@ -131,13 +149,16 @@ const PropertyDetails = () => {
 
   const restoreProperty = async () => {
     if (!propertyId || !property?.name) return;
-    const ok = window.confirm(`Restore "${property.name}"?`);
+    const ok = await confirmDialog({ title: `Restore "${property.name}"?`, confirmLabel: 'Restore' });
     if (!ok) return;
     setLoading(true);
     try {
       await api.patch(`/properties/${propertyId}/restore`);
       const refreshed = await api.get(`/properties/${propertyId}`);
       setProperty(refreshed.data);
+      toast.success('Property restored.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to restore property.');
     } finally {
       setLoading(false);
     }
@@ -146,7 +167,6 @@ const PropertyDetails = () => {
   const addUnit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!propertyId) return;
-    setError('');
     setLoading(true);
     try {
       await api.post(`/properties/${propertyId}/units`, {
@@ -170,8 +190,9 @@ const PropertyDetails = () => {
         lastMeterReading: ''
       });
       setShowAddUnit(false);
+      toast.success('Unit added.');
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Failed to add unit.');
+      toast.error(err?.response?.data?.message || 'Failed to add unit.');
     } finally {
       setLoading(false);
     }
@@ -179,13 +200,21 @@ const PropertyDetails = () => {
 
   const deleteUnit = async (unitId: string, unitNumber?: string) => {
     if (!propertyId) return;
-    const ok = window.confirm(`Delete unit ${unitNumber ? `"${unitNumber}"` : ''}? This will hide it from lists.`);
+    const ok = await confirmDialog({
+      title: `Mark unit ${unitNumber ? `"${unitNumber}"` : ''} as inactive?`,
+      description: 'This will hide it from active lists. You can restore it later.',
+      confirmLabel: 'Deactivate',
+      danger: true
+    });
     if (!ok) return;
     setLoading(true);
     try {
       await api.delete(`/properties/${propertyId}/units/${unitId}`);
       const unitsRes = await api.get(`/properties/${propertyId}/units`);
       setUnits(unitsRes.data);
+      toast.success('Unit marked inactive.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to update unit.');
     } finally {
       setLoading(false);
     }
@@ -207,9 +236,49 @@ const PropertyDetails = () => {
     ? Math.round((totals.collectedRent / totals.monthlyExpectedRent) * 100)
     : 0;
 
+  const unitColumns: TableColumn<any>[] = [
+    { key: 'unitNumber', label: 'Unit', accessor: (unit) => unit.unitNumber },
+    { key: 'unitType', label: 'Type', accessor: (unit) => unitTypeLabels[unit.unitType] || unit.unitType },
+    { key: 'floor', label: 'Floor', accessor: (unit) => unit.floor || '-' },
+    { key: 'meterReading', label: 'Meter Reading', accessor: (unit) => unit.lastMeterReading ?? 0 },
+    { key: 'rent', label: 'Rent', accessor: (unit) => unit.monthlyRent, render: (unit) => `₹${unit.monthlyRent}` },
+    {
+      key: 'status',
+      label: 'Status',
+      accessor: (unit) => formatUnitStatus(unit.status),
+      filterOptions: [
+        { value: 'Occupied', label: 'Occupied' },
+        { value: 'Vacant', label: 'Vacant' },
+        { value: 'Under Repair', label: 'Under Repair' }
+      ],
+      render: (unit) => <Badge tone={unitStatusTone(unit.status)}>{formatUnitStatus(unit.status)}</Badge>
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      sortable: false,
+      render: (unit) => (
+        <div className="flex items-center gap-2">
+          <button
+            className="btn btn-sm btn-info"
+            onClick={() => navigate(`/properties/${propertyId}/units/${unit._id}`)}
+          >
+            View
+          </button>
+          <button
+            className="btn btn-sm btn-danger"
+            onClick={() => deleteUnit(unit._id, unit.unitNumber)}
+          >
+            Deactivate
+          </button>
+        </div>
+      )
+    }
+  ];
+
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-black/5 p-6 shadow-sm space-y-4">
+      <div className="card p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -219,7 +288,7 @@ const PropertyDetails = () => {
               </span>
               {property.isArchived && (
                 <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded-full bg-red-50 text-red-600">
-                  Deleted
+                  Inactive
                 </span>
               )}
             </div>
@@ -231,7 +300,7 @@ const PropertyDetails = () => {
           <div className="flex items-center gap-2">
             {property.isArchived ? (
               <button
-                className="px-4 py-2 rounded-xl text-sm border border-emerald-200 text-emerald-600 bg-emerald-50"
+                className="btn btn-success"
                 onClick={restoreProperty}
               >
                 Restore
@@ -239,16 +308,16 @@ const PropertyDetails = () => {
             ) : (
               <>
                 <button
-                  className="px-4 py-2 rounded-xl text-sm border border-black/10"
+                  className="btn btn-warning"
                   onClick={() => setShowEdit(true)}
                 >
                   Edit
                 </button>
                 <button
-                  className="px-4 py-2 rounded-xl text-sm border border-red-200 text-red-600 bg-red-50"
+                  className="btn btn-danger"
                   onClick={deleteProperty}
                 >
-                  Delete
+                  Deactivate
                 </button>
               </>
             )}
@@ -258,7 +327,7 @@ const PropertyDetails = () => {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl border border-black/5 p-6 shadow-sm space-y-4">
+        <div className="card p-6 space-y-4">
           <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Units & Occupancy</div>
           <div className="flex items-end justify-between">
             <div>
@@ -278,7 +347,7 @@ const PropertyDetails = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-black/5 p-6 shadow-sm space-y-4">
+        <div className="card p-6 space-y-4">
           <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Rent This Month</div>
           <div className="flex items-end justify-between">
             <div>
@@ -296,7 +365,7 @@ const PropertyDetails = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-black/5 p-6 shadow-sm space-y-4">
+        <div className="card p-6 space-y-4">
           <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Charges & Rates</div>
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
@@ -319,7 +388,7 @@ const PropertyDetails = () => {
         <div className="text-sm font-semibold">Units</div>
         {!property.isArchived && (
           <button
-            className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+            className="btn btn-primary"
             onClick={() => setShowAddUnit(true)}
           >
             Add Unit
@@ -327,58 +396,23 @@ const PropertyDetails = () => {
         )}
       </div>
 
-      <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="text-left border-b border-black/5">
-            <tr>
-              <th className="px-4 py-3">Unit</th>
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Floor</th>
-              <th className="px-4 py-3">Meter Reading</th>
-              <th className="px-4 py-3">Rent</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {units.map((unit) => (
-              <tr key={unit._id} className="border-b border-black/5">
-                <td className="px-4 py-3">{unit.unitNumber}</td>
-                <td className="px-4 py-3">{unitTypeLabels[unit.unitType] || unit.unitType}</td>
-                <td className="px-4 py-3">{unit.floor || '-'}</td>
-                <td className="px-4 py-3">{unit.lastMeterReading ?? 0}</td>
-                <td className="px-4 py-3">₹{unit.monthlyRent}</td>
-                <td className="px-4 py-3">{formatUnitStatus(unit.status)}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="text-xs px-3 py-1.5 rounded-lg border border-black/10"
-                      onClick={() => navigate(`/properties/${propertyId}/units/${unit._id}`)}
-                    >
-                      View
-                    </button>
-                    <button
-                      className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-red-50"
-                      onClick={() => deleteUnit(unit._id, unit.unitNumber)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!units.length && <div className="px-4 py-6 text-[var(--muted)]">No units added yet.</div>}
-      </div>
+      <SortableTable
+        columns={unitColumns}
+        data={units}
+        rowKey={(unit) => unit._id}
+        searchPlaceholder="Search units by number, floor..."
+        emptyIcon={<UnitsIcon width={22} height={22} />}
+        emptyTitle="No units added yet"
+        emptyDescription="Add a unit to start tracking rent, occupancy, and tenants."
+      />
 
       {showEdit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-6">
           <div className="w-full max-w-4xl bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="text-lg font-semibold">Edit Property</div>
-              <button className="text-sm text-[var(--muted)]" onClick={() => setShowEdit(false)}>
-                Close
+              <button className="modal-close-btn" onClick={() => setShowEdit(false)} aria-label="Close">
+                <CloseIcon width={18} height={18} />
               </button>
             </div>
             <form onSubmit={saveProperty} className="space-y-4">
@@ -484,18 +518,17 @@ const PropertyDetails = () => {
                   />
                 </div>
               </div>
-              {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
               <div className="flex items-center gap-3">
                 <button
                   type="submit"
-                  className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+                  className="btn btn-primary"
                   disabled={loading}
                 >
                   {loading ? 'Saving...' : 'Save Changes'}
                 </button>
                 <button
                   type="button"
-                  className="text-sm text-[var(--muted)]"
+                  className="btn btn-cancel"
                   onClick={() => setShowEdit(false)}
                 >
                   Cancel
@@ -511,8 +544,8 @@ const PropertyDetails = () => {
           <div className="w-full max-w-4xl bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="text-lg font-semibold">Add Unit</div>
-              <button className="text-sm text-[var(--muted)]" onClick={() => setShowAddUnit(false)}>
-                Close
+              <button className="modal-close-btn" onClick={() => setShowAddUnit(false)} aria-label="Close">
+                <CloseIcon width={18} height={18} />
               </button>
             </div>
             <form onSubmit={addUnit} className="space-y-4">
@@ -589,18 +622,17 @@ const PropertyDetails = () => {
                   />
                 </div>
               </div>
-              {error && <div className="text-sm text-[var(--danger)]">{error}</div>}
               <div className="flex items-center gap-3">
                 <button
                   type="submit"
-                  className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl text-sm font-medium"
+                  className="btn btn-primary"
                   disabled={loading}
                 >
                   {loading ? 'Saving...' : 'Save Unit'}
                 </button>
                 <button
                   type="button"
-                  className="text-sm text-[var(--muted)]"
+                  className="btn btn-cancel"
                   onClick={() => setShowAddUnit(false)}
                 >
                   Cancel

@@ -4,11 +4,18 @@ import { useNotificationsFeed } from '../lib/notificationCenter';
 import { useSyncStatus } from '../lib/offlineSync';
 import { appStorage } from '../lib/appStorage';
 import { useI18n } from '../lib/i18n';
+import { BellIcon, CalendarIcon, ChevronDownIcon, LogoutIcon, SettingsIcon, UserIcon, WifiOffIcon } from './icons';
 
 const notificationToneStyles: Record<string, string> = {
   success: 'text-emerald-600',
   warning: 'text-amber-600',
   info: 'text-sky-600'
+};
+
+const notificationDotStyles: Record<string, string> = {
+  success: 'bg-emerald-500',
+  warning: 'bg-amber-500',
+  info: 'bg-sky-500'
 };
 
 const TopBar = () => {
@@ -23,6 +30,22 @@ const TopBar = () => {
   const { notifications } = useNotificationsFeed();
 
   const recentNotifications = useMemo(() => notifications.slice(0, 4), [notifications]);
+
+  const initials = useMemo(() => {
+    try {
+      const snapshot = JSON.parse(appStorage.getItem('rentdesk_session_snapshot_v1') || 'null');
+      const name = snapshot?.user?.fullName as string | undefined;
+      if (!name) return 'RD';
+      return name
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase())
+        .join('');
+    } catch {
+      return 'RD';
+    }
+  }, []);
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -78,13 +101,18 @@ const TopBar = () => {
         ? `${syncStatus.pendingCount} ${t('queued')}`
         : t('Online');
 
+  const unreadCount = notifications.length;
+
   return (
     <div className="relative z-40 mb-6 flex items-center justify-between gap-4">
-      <div className="text-2xl font-semibold">{title}</div>
+      <div>
+        <div className="text-2xl font-semibold tracking-tight">{title}</div>
+        <div className="text-xs text-[var(--muted)]">{t('Welcome back — here is what needs your attention.')}</div>
+      </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         <div
-          className={`rounded-full px-3 py-2 text-xs font-medium border ${
+          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold border ${
             !syncStatus.isOnline
               ? 'border-amber-200 bg-amber-50 text-amber-700'
               : syncStatus.isSyncing
@@ -94,47 +122,63 @@ const TopBar = () => {
                   : 'border-emerald-200 bg-emerald-50 text-emerald-700'
           }`}
         >
+          {!syncStatus.isOnline ? (
+            <WifiOffIcon width={13} height={13} />
+          ) : (
+            <span className={`h-1.5 w-1.5 rounded-full ${syncStatus.isSyncing ? 'bg-sky-500 animate-pulse' : 'bg-emerald-500'}`} />
+          )}
           {syncLabel}
         </div>
 
-        <button
-          className="px-3 py-2 rounded-xl border border-black/10 bg-white text-sm hover:bg-black/5"
-          onClick={() => navigate('/calendar')}
-        >
-          {t('Calendar')}
+        <button className="icon-btn" onClick={() => navigate('/calendar')} aria-label={t('Calendar')} title={t('Calendar')}>
+          <CalendarIcon />
         </button>
 
         <div className="relative" ref={notificationsRef}>
           <button
-            className="px-3 py-2 rounded-xl border border-black/10 bg-white text-sm hover:bg-black/5"
+            className="icon-btn relative"
             onClick={() => setShowNotifications((prev) => !prev)}
+            aria-label={t('Notifications')}
+            title={t('Notifications')}
           >
-            {t('Notifications')}
+            <BellIcon />
+            {unreadCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[10px] font-bold text-white">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </button>
           {showNotifications && (
-            <div className="absolute right-0 z-50 mt-2 w-80 rounded-2xl border border-black/10 bg-white shadow-[0_24px_50px_rgba(15,23,42,0.18)] p-4">
+            <div className="card absolute right-0 z-50 mt-2 w-80 p-4 shadow-[var(--shadow-lg)]">
               <div className="text-sm font-semibold mb-3">{t('Recent updates')}</div>
               <div className="space-y-3">
-                {recentNotifications.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="block w-full text-left text-sm"
-                    onClick={() => {
-                      setShowNotifications(false);
-                      if (item.path) navigate(item.path);
-                    }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className={`font-medium ${notificationToneStyles[item.tone]}`}>{item.title}</div>
-                      <div className="text-xs text-[var(--muted)]">{item.time}</div>
-                    </div>
-                    <div className="text-xs text-[var(--muted)]">{item.description}</div>
-                  </button>
-                ))}
+                {recentNotifications.length ? (
+                  recentNotifications.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="block w-full rounded-xl p-2 -mx-2 text-left text-sm hover:bg-[var(--surface-1)]"
+                      onClick={() => {
+                        setShowNotifications(false);
+                        if (item.path) navigate(item.path);
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${notificationDotStyles[item.tone]}`} />
+                        <div className="flex-1 flex items-center justify-between gap-2">
+                          <div className={`font-medium ${notificationToneStyles[item.tone]}`}>{item.title}</div>
+                          <div className="shrink-0 text-xs text-[var(--muted)]">{item.time}</div>
+                        </div>
+                      </div>
+                      <div className="ml-3.5 text-xs text-[var(--muted)]">{item.description}</div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-sm text-[var(--muted)]">{t('Nothing new right now.')}</div>
+                )}
               </div>
               <button
-                className="mt-4 text-sm text-[var(--accent)]"
+                className="mt-4 text-sm font-medium text-[var(--accent)]"
                 onClick={() => {
                   setShowNotifications(false);
                   navigate('/notifications');
@@ -148,35 +192,43 @@ const TopBar = () => {
 
         <div className="relative" ref={profileRef}>
           <button
-            className="px-3 py-2 rounded-xl border border-black/10 bg-white text-sm hover:bg-black/5"
+            className="flex items-center gap-2 rounded-full border border-black/10 bg-white py-1 pl-1 pr-2.5 hover:bg-[var(--surface-1)]"
             onClick={() => setShowProfile((prev) => !prev)}
+            aria-label={t('Profile')}
           >
-            {t('Profile')}
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] text-xs font-semibold text-white">
+              {initials}
+            </span>
+            <ChevronDownIcon width={14} height={14} className="text-[var(--muted)]" />
           </button>
           {showProfile && (
-            <div className="absolute right-0 z-50 mt-2 w-56 rounded-2xl border border-black/10 bg-white shadow-[0_24px_50px_rgba(15,23,42,0.18)] p-3">
+            <div className="card absolute right-0 z-50 mt-2 w-56 p-2 shadow-[var(--shadow-lg)]">
               <button
-                className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-black/5"
+                className="flex w-full items-center gap-2.5 text-left px-3 py-2.5 rounded-xl text-sm hover:bg-[var(--surface-1)]"
                 onClick={() => {
                   setShowProfile(false);
                   navigate('/profile');
                 }}
               >
+                <UserIcon width={16} height={16} className="text-[var(--muted)]" />
                 {t('Portfolio Profile')}
               </button>
               <button
-                className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-black/5"
+                className="flex w-full items-center gap-2.5 text-left px-3 py-2.5 rounded-xl text-sm hover:bg-[var(--surface-1)]"
                 onClick={() => {
                   setShowProfile(false);
                   navigate('/settings');
                 }}
               >
+                <SettingsIcon width={16} height={16} className="text-[var(--muted)]" />
                 {t('Settings')}
               </button>
+              <div className="my-1.5 h-px bg-black/5" />
               <button
-                className="w-full text-left px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50"
+                className="flex w-full items-center gap-2.5 text-left px-3 py-2.5 rounded-xl text-sm text-red-600 hover:bg-red-50"
                 onClick={logout}
               >
+                <LogoutIcon width={16} height={16} />
                 {t('Logout')}
               </button>
             </div>

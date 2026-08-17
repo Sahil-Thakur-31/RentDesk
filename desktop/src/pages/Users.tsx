@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import api from '../lib/api';
 import Badge, { type BadgeTone } from '../components/Badge';
+import SortableTable, { type TableColumn } from '../components/SortableTable';
+import { UserIcon } from '../components/icons';
 
 const roleTone = (role: string): BadgeTone => {
   if (role === 'owner') return 'accent';
@@ -18,6 +20,23 @@ const Users = () => {
     setResults(response.data);
   };
 
+  const columns: TableColumn<any>[] = [
+    { key: 'fullName', label: 'Name', accessor: (user) => user.fullName },
+    { key: 'email', label: 'Email', accessor: (user) => user.email },
+    {
+      key: 'role',
+      label: 'Role',
+      accessor: (user) => user.role,
+      filterOptions: [
+        { value: 'owner', label: 'Owner' },
+        { value: 'warden', label: 'Warden' },
+        { value: 'manager', label: 'Manager' },
+        { value: 'accountant', label: 'Accountant' }
+      ],
+      render: (user) => <Badge tone={roleTone(user.role)}>{user.role}</Badge>
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -27,34 +46,20 @@ const Users = () => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <button className="bg-[var(--accent)] text-white px-4 py-2 rounded-lg text-sm" onClick={search}>
+        <button className="btn btn-primary" onClick={search}>
           Search
         </button>
       </div>
 
-      <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="text-left border-b border-black/5">
-            <tr>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Email</th>
-              <th className="px-4 py-3">Role</th>
-            </tr>
-          </thead>
-          <tbody>
-            {results.map((user) => (
-              <tr key={user._id} className="border-b border-black/5">
-                <td className="px-4 py-3">{user.fullName}</td>
-                <td className="px-4 py-3">{user.email}</td>
-                <td className="px-4 py-3">
-                  <Badge tone={roleTone(user.role)}>{user.role}</Badge>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!results.length && <div className="px-4 py-6 text-[var(--muted)]">Search to view users.</div>}
-      </div>
+      <SortableTable
+        columns={columns}
+        data={results}
+        rowKey={(user) => user._id}
+        searchPlaceholder="Filter results by name, email, or role..."
+        emptyIcon={<UserIcon width={22} height={22} />}
+        emptyTitle="Search to view users"
+        emptyDescription="Look up a registered user by their email address."
+      />
     </div>
   );
 };

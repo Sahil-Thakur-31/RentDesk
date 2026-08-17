@@ -1,31 +1,42 @@
-﻿import { useI18n } from '../lib/i18n';
+import type { ReactNode } from 'react';
+import { useI18n } from '../lib/i18n';
 
 interface StatCardProps {
   label: string;
   value: string | number;
   subLabel?: string;
   tone?: 'default' | 'success' | 'warning' | 'danger';
+  icon?: ReactNode;
 }
 
-const tones: Record<string, { text: string; bar: string }> = {
-  default: { text: 'text-[var(--accent)]', bar: 'bg-[var(--accent)]' },
-  success: { text: 'text-[var(--success)]', bar: 'bg-[var(--success)]' },
-  warning: { text: 'text-[var(--warning)]', bar: 'bg-[var(--warning)]' },
-  danger: { text: 'text-[var(--danger)]', bar: 'bg-[var(--danger)]' }
+const tones: Record<string, { text: string; bar: string; iconBg: string; iconText: string }> = {
+  default: { text: 'text-[var(--accent)]', bar: 'bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)]', iconBg: 'bg-teal-50', iconText: 'text-[var(--accent)]' },
+  success: { text: 'text-[var(--success)]', bar: 'bg-[var(--success)]', iconBg: 'bg-emerald-50', iconText: 'text-emerald-600' },
+  warning: { text: 'text-[var(--warning)]', bar: 'bg-[var(--warning)]', iconBg: 'bg-amber-50', iconText: 'text-amber-600' },
+  danger: { text: 'text-[var(--danger)]', bar: 'bg-[var(--danger)]', iconBg: 'bg-red-50', iconText: 'text-red-600' }
 };
 
-const StatCard = ({ label, value, subLabel, tone = 'default' }: StatCardProps) => {
+const StatCard = ({ label, value, subLabel, tone = 'default', icon }: StatCardProps) => {
   const { t } = useI18n();
+  const toneStyle = tones[tone];
 
   return (
-    <div className="relative overflow-hidden bg-white rounded-2xl border border-black/5 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
-      <div className={`absolute left-0 top-0 h-1 w-full ${tones[tone].bar}`} />
-      <div className="text-xs uppercase tracking-wide text-[var(--muted)]">{t(label)}</div>
-      <div className={`text-2xl font-semibold mt-2 ${tones[tone].text}`}>{value}</div>
-      {subLabel && <div className="text-xs text-[var(--muted)] mt-1">{t(subLabel)}</div>}
+    <div className="card card-hover relative overflow-hidden p-5">
+      <div className={`absolute left-0 top-0 h-1 w-full ${toneStyle.bar}`} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">{t(label)}</div>
+          <div className={`mt-2 text-2xl font-semibold ${toneStyle.text}`}>{value}</div>
+          {subLabel && <div className="mt-1 text-xs text-[var(--muted)]">{t(subLabel)}</div>}
+        </div>
+        {icon && (
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${toneStyle.iconBg} ${toneStyle.iconText}`}>
+            {icon}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
 
 export default StatCard;
-

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import Badge, { type BadgeTone } from '../components/Badge';
+import SortableTable, { type TableColumn } from '../components/SortableTable';
+import { ReportsIcon } from '../components/icons';
 import { formatMonthYear } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
 
@@ -53,48 +55,51 @@ const RentRecords = () => {
     loadRecords();
   }, [propertyId, properties, dataVersion]);
 
+  const columns: TableColumn<any>[] = [
+    {
+      key: 'property',
+      label: 'Property',
+      accessor: (record) => record._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'
+    },
+    { key: 'tenant', label: 'Tenant', accessor: (record) => record.tenantId?.fullName || '-' },
+    { key: 'unit', label: 'Unit', accessor: (record) => record.unitId?.unitNumber || '-' },
+    {
+      key: 'month',
+      label: 'Month',
+      accessor: (record) => record.year * 100 + record.month,
+      render: (record) => formatMonthYear(record.month, record.year)
+    },
+    { key: 'amount', label: 'Amount', accessor: (record) => record.rentAmount, render: (record) => `₹${record.rentAmount}` },
+    {
+      key: 'status',
+      label: 'Status',
+      accessor: (record) => record.status,
+      filterOptions: [
+        { value: 'paid', label: 'Paid' },
+        { value: 'partial', label: 'Partial' },
+        { value: 'unpaid', label: 'Unpaid' }
+      ],
+      render: (record) => <Badge tone={statusTone(record.status)}>{record.status}</Badge>
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-end">
         <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
       </div>
 
-      <div className="bg-white rounded-2xl border border-black/5 shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="text-left border-b border-black/5">
-            <tr>
-              <th className="px-4 py-3">Property</th>
-              <th className="px-4 py-3">Tenant</th>
-              <th className="px-4 py-3">Unit</th>
-              <th className="px-4 py-3">Month</th>
-              <th className="px-4 py-3">Amount</th>
-              <th className="px-4 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.map((record) => (
-              <tr key={record._id} className="border-b border-black/5">
-                <td className="px-4 py-3">{record._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'}</td>
-                <td className="px-4 py-3">{record.tenantId?.fullName}</td>
-                <td className="px-4 py-3">{record.unitId?.unitNumber}</td>
-                <td className="px-4 py-3">{formatMonthYear(record.month, record.year)}</td>
-                <td className="px-4 py-3">₹{record.rentAmount}</td>
-                <td className="px-4 py-3">
-                  <Badge tone={statusTone(record.status)}>{record.status}</Badge>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!records.length && (
-          <div className="px-4 py-6 text-[var(--muted)]">
-            No rent records found.
-          </div>
-        )}
-      </div>
+      <SortableTable
+        columns={columns}
+        data={records}
+        rowKey={(record) => record._id}
+        searchPlaceholder="Search by tenant, unit, property..."
+        emptyIcon={<ReportsIcon width={22} height={22} />}
+        emptyTitle="No rent records found"
+        emptyDescription="Rent records generate automatically each month once a unit has an active tenant."
+      />
     </div>
   );
 };
 
 export default RentRecords;
-

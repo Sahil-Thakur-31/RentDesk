@@ -3,6 +3,7 @@ import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import { formatMonthKey, getCurrentDateValue, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
 import { useDataVersion } from '../lib/dataSync';
+import { toast } from '../lib/toast';
 
 const parseDownloadName = (header?: string, fallback = 'report') => {
   const match = header?.match(/filename="?([^";]+)"?/i);
@@ -30,8 +31,6 @@ const Reports = () => {
   const [maintenanceStart, setMaintenanceStart] = useState(getCurrentDateValue());
   const [maintenanceEnd, setMaintenanceEnd] = useState(getCurrentDateValue());
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
   const dataVersion = useDataVersion();
 
   useEffect(() => {
@@ -40,7 +39,7 @@ const Reports = () => {
         const response = await api.get('/properties');
         setProperties(response.data || []);
       } catch (err: any) {
-        setError(err?.response?.data?.message || 'Unable to load properties right now.');
+        toast.error(err?.response?.data?.message || 'Unable to load properties right now.');
       }
     };
     void load();
@@ -70,15 +69,13 @@ const Reports = () => {
 
   const downloadReport = async (path: string, params: Record<string, string>, fallbackName: string) => {
     setLoading(true);
-    setError('');
-    setMessage('');
     try {
       const response = await api.get(path, {
         params,
         responseType: 'blob'
       });
       downloadBlob(response.data, parseDownloadName(response.headers['content-disposition'], fallbackName));
-      setMessage('Report downloaded.');
+      toast.success('Report downloaded.');
     } catch (err: any) {
       let nextError = err?.response?.data?.message || 'Unable to download this report.';
       if (err?.response?.data instanceof Blob) {
@@ -90,7 +87,7 @@ const Reports = () => {
           // keep fallback message
         }
       }
-      setError(nextError);
+      toast.error(nextError);
     } finally {
       setLoading(false);
     }
@@ -104,18 +101,6 @@ const Reports = () => {
         <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
         {!propertyId ? <div className="text-sm text-[var(--muted)]">Choose one property to export reports.</div> : null}
       </div>
-
-      {(message || error) && (
-        <div
-          className={`rounded-2xl border px-4 py-3 text-sm ${
-            error
-              ? 'border-red-200 bg-red-50 text-red-700'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          }`}
-        >
-          {error || message}
-        </div>
-      )}
 
       <div className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm space-y-4">
@@ -147,7 +132,7 @@ const Reports = () => {
           </div>
           <div className="flex gap-3">
             <button
-              className="rounded-2xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              className="btn btn-primary !py-2.5"
               disabled={!propertyId || loading}
               onClick={() =>
                 downloadReport(
@@ -160,7 +145,7 @@ const Reports = () => {
               Excel
             </button>
             <button
-              className="rounded-2xl border border-black/10 px-4 py-2.5 text-sm hover:bg-black/5 disabled:opacity-60"
+              className="btn btn-secondary !py-2.5"
               disabled={!propertyId || loading}
               onClick={() =>
                 downloadReport(
@@ -204,7 +189,7 @@ const Reports = () => {
           </div>
           <div className="flex gap-3">
             <button
-              className="rounded-2xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              className="btn btn-primary !py-2.5"
               disabled={!propertyId || loading}
               onClick={() =>
                 downloadReport(
@@ -217,7 +202,7 @@ const Reports = () => {
               Excel
             </button>
             <button
-              className="rounded-2xl border border-black/10 px-4 py-2.5 text-sm hover:bg-black/5 disabled:opacity-60"
+              className="btn btn-secondary !py-2.5"
               disabled={!propertyId || loading}
               onClick={() =>
                 downloadReport(
@@ -253,7 +238,7 @@ const Reports = () => {
           </div>
           <div className="flex gap-3">
             <button
-              className="rounded-2xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              className="btn btn-primary !py-2.5"
               disabled={!propertyId || loading}
               onClick={() =>
                 downloadReport(
@@ -266,7 +251,7 @@ const Reports = () => {
               Excel
             </button>
             <button
-              className="rounded-2xl border border-black/10 px-4 py-2.5 text-sm hover:bg-black/5 disabled:opacity-60"
+              className="btn btn-secondary !py-2.5"
               disabled={!propertyId || loading}
               onClick={() =>
                 downloadReport(
@@ -302,7 +287,7 @@ const Reports = () => {
           </div>
           <div className="flex gap-3">
             <button
-              className="rounded-2xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              className="btn btn-primary !py-2.5"
               disabled={!propertyId || loading}
               onClick={() =>
                 downloadReport(
@@ -315,7 +300,7 @@ const Reports = () => {
               Excel
             </button>
             <button
-              className="rounded-2xl border border-black/10 px-4 py-2.5 text-sm hover:bg-black/5 disabled:opacity-60"
+              className="btn btn-secondary !py-2.5"
               disabled={!propertyId || loading}
               onClick={() =>
                 downloadReport(
@@ -354,7 +339,7 @@ const Reports = () => {
             </div>
             <div className="flex gap-3">
               <button
-                className="rounded-2xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+                className="btn btn-primary !py-2.5"
                 disabled={!propertyId || !tenantId || loading}
                 onClick={() =>
                   downloadReport(
@@ -367,7 +352,7 @@ const Reports = () => {
                 Excel
               </button>
               <button
-                className="rounded-2xl border border-black/10 px-4 py-2.5 text-sm hover:bg-black/5 disabled:opacity-60"
+                className="btn btn-secondary !py-2.5"
                 disabled={!propertyId || !tenantId || loading}
                 onClick={() =>
                   downloadReport(

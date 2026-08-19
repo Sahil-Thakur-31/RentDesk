@@ -6,11 +6,13 @@ import TenantFormModal from '../components/TenantFormModal';
 import DepositPaymentModal from '../components/DepositPaymentModal';
 import Badge, { type BadgeTone } from '../components/Badge';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
-import { CloseIcon, ShieldIcon, TenantsIcon, TransactionsIcon } from '../components/icons';
+import { AlertTriangleIcon, CloseIcon, ShieldIcon, TenantsIcon, TransactionsIcon, UtilitiesIcon } from '../components/icons';
 import { formatDate, formatMonthKey, formatMonthYear } from '../lib/dateFormat';
-import { useDataVersion } from '../lib/dataSync';
+import { cachedGet, invalidateByTag, isCached } from '../lib/queryCache';
 import { toast } from '../lib/toast';
 import { confirmDialog } from '../lib/confirmDialog';
+import { SkeletonDetailHeader, SkeletonStatRow, SkeletonTable, SkeletonInfoCard } from '../components/Skeleton';
+import { formatCurrency } from '../lib/format';
 
 const unitTypeLabels: Record<string, string> = {
   single_room: 'Single Room',
@@ -42,15 +44,6 @@ const paymentStatusTone = (status: string): BadgeTone => {
   return 'danger';
 };
 
-const paymentFilterOptions = [
-  { value: 'all', label: 'All Payments' },
-  { value: 'rent', label: 'Rent' },
-  { value: 'utility', label: 'Utility' },
-  { value: 'maintenance', label: 'Maintenance' },
-  { value: 'deposit', label: 'Deposit' },
-  { value: 'other', label: 'Others' }
-] as const;
-
 const getPaymentCategory = (payment: any) => {
   if (payment.type === 'rent') return 'rent';
   if (payment.type === 'utility') return 'utility';
@@ -65,7 +58,7 @@ const formatPaymentType = (payment: any) => {
   if (payment.type === 'utility') return 'Utility';
   if (payment.type === 'maintenance') return 'Maintenance';
   if (payment.type === 'rent') return 'Rent';
-  return 'Other';
+  return payment.direction === 'out' ? 'Other (Cash Out)' : 'Other (Cash In)';
 };
 
 const UnitDetails = () => {
@@ -77,12 +70,17 @@ const UnitDetails = () => {
   const [payments, setPayments] = useState<any[]>([]);
   const [rentRecords, setRentRecords] = useState<any[]>([]);
   const [utilityBills, setUtilityBills] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
   const [showTenantModal, setShowTenantModal] = useState(false);
   const [showDepositModal, setShowDepositModal] = useState(false);
-  const [paymentFilter, setPaymentFilter] = useState<(typeof paymentFilterOptions)[number]['value']>('all');
-  const dataVersion = useDataVersion();
+  const [showTenantHistory, setShowTenantHistory] = useState(false);
+  const [recordsTab, setRecordsTab] = useState<'payments' | 'rentRecords' | 'utilityBills' | 'maintenance' | 'others'>('payments');
+  const [collectRentRecord, setCollectRentRecord] = useState<any>(null);
+  const [collectAmount, setCollectAmount] = useState('');
+  const [collectSaving, setCollectSaving] = useState(false);
+  const [utilitySavingId, setUtilitySavingId] = useState<string | null>(null);
+  const [maintenanceSaving, setMaintenanceSaving] = useState(false);
   const [form, setForm] = useState({
     unitNumber: '',
     unitType: '1bhk',
@@ -93,45 +91,122 @@ const UnitDetails = () => {
     lastMeterReading: ''
   });
 
-  useEffect(() => {
+  const load = async (options?: { force?: boolean }) => {
     if (!propertyId || !unitId) return;
-    const load = async () => {
-      setLoading(true);
-      try {
-        const [propertyRes, unitRes] = await Promise.all([
-          api.get(`/properties/${propertyId}`),
-          api.get(`/properties/${propertyId}/units/${unitId}/details`)
-        ]);
-        setProperty(propertyRes.data);
-        setUnit(unitRes.data.unit);
-        setTenants(unitRes.data.tenants || []);
-        setPayments(unitRes.data.payments || []);
-        setRentRecords(unitRes.data.rentRecords || []);
-        setUtilityBills(unitRes.data.utilityBills || []);
-        setForm({
-          unitNumber: unitRes.data.unit.unitNumber || '',
-          unitType: unitRes.data.unit.unitType || '1bhk',
-          floor: unitRes.data.unit.floor || '',
-          size: unitRes.data.unit.size || '',
-          monthlyRent: String(unitRes.data.unit.monthlyRent ?? ''),
-          deposit: String(unitRes.data.unit.deposit ?? ''),
-          lastMeterReading: String(unitRes.data.unit.lastMeterReading ?? '')
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (options?.force) {
+      invalidateByTag('property', propertyId);
+      invalidateByTag('unitDetails', propertyId);
+    }
+    const allCached = isCached(`/properties/${propertyId}`) && isCached(`/properties/${propertyId}/units/${unitId}/details`);
+    if (!allCached) setLoading(true);
+    try {
+      const [propertyData, unitData] = await Promise.all([
+        cachedGet(`/properties/${propertyId}`),
+        cachedGet(`/properties/${propertyId}/units/${unitId}/details`)
+      ]);
+      setProperty(propertyData);
+      setUnit(unitData.unit);
+      setTenants(unitData.tenants || []);
+      setPayments(unitData.payments || []);
+      setRentRecords(unitData.rentRecords || []);
+      setUtilityBills(unitData.utilityBills || []);
+      setForm({
+        unitNumber: unitData.unit.unitNumber || '',
+        unitType: unitData.unit.unitType || '1bhk',
+        floor: unitData.unit.floor || '',
+        size: unitData.unit.size || '',
+        monthlyRent: String(unitData.unit.monthlyRent ?? ''),
+        deposit: String(unitData.unit.deposit ?? ''),
+        lastMeterReading: String(unitData.unit.lastMeterReading ?? '')
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const scopeKey = `${propertyId}::${unitId}`;
+  const [renderedScopeKey, setRenderedScopeKey] = useState(scopeKey);
+  if (scopeKey !== renderedScopeKey) {
+    setRenderedScopeKey(scopeKey);
+    setUnit(null);
+    setLoading(true);
+  }
+
+  useEffect(() => {
     load();
-  }, [propertyId, unitId, dataVersion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId, unitId]);
 
   const refresh = async () => {
     if (!propertyId || !unitId) return;
-    const response = await api.get(`/properties/${propertyId}/units/${unitId}/details`);
-    setUnit(response.data.unit);
-    setTenants(response.data.tenants || []);
-    setPayments(response.data.payments || []);
-    setRentRecords(response.data.rentRecords || []);
-    setUtilityBills(response.data.utilityBills || []);
+    invalidateByTag('unitDetails', propertyId);
+    const data = await cachedGet(`/properties/${propertyId}/units/${unitId}/details`);
+    setUnit(data.unit);
+    setTenants(data.tenants || []);
+    setPayments(data.payments || []);
+    setRentRecords(data.rentRecords || []);
+    setUtilityBills(data.utilityBills || []);
+  };
+
+  const collectRent = async () => {
+    if (!collectRentRecord || !propertyId) return;
+    const amount = Number(collectAmount);
+    const remaining = Math.max(0, (collectRentRecord.rentAmount || 0) - (collectRentRecord.paidAmount || 0));
+    if (!amount || amount <= 0 || amount > remaining) {
+      toast.error('Enter an amount greater than 0 and not exceeding the remaining rent.');
+      return;
+    }
+    setCollectSaving(true);
+    try {
+      await api.post(`/properties/${propertyId}/rent-records/${collectRentRecord._id}/collect`, {
+        amount,
+        paymentMode: 'cash'
+      });
+      setCollectRentRecord(null);
+      setCollectAmount('');
+      await refresh();
+      toast.success('Rent collected.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to collect rent.');
+    } finally {
+      setCollectSaving(false);
+    }
+  };
+
+  const markUtilityBillPaid = async (bill: any) => {
+    if (!propertyId) return;
+    setUtilitySavingId(bill._id);
+    try {
+      await api.patch(`/properties/${propertyId}/utility-bills/${bill._id}`, { status: 'paid' });
+      await refresh();
+      toast.success('Utility bill marked paid.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to update utility bill.');
+    } finally {
+      setUtilitySavingId(null);
+    }
+  };
+
+  const collectMaintenance = async () => {
+    if (!propertyId || !unit?.currentTenant?._id) return;
+    setMaintenanceSaving(true);
+    try {
+      const now = new Date();
+      await api.post(`/properties/${propertyId}/payments`, {
+        type: 'maintenance',
+        amount: property?.maintenanceCharge || 0,
+        date: now.toISOString(),
+        unitId: unit._id,
+        tenantId: unit.currentTenant._id,
+        notes: `Maintenance collected for ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+      });
+      await refresh();
+      toast.success('Maintenance collected.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to collect maintenance.');
+    } finally {
+      setMaintenanceSaving(false);
+    }
   };
 
   const updateField = (key: string, value: string) => {
@@ -143,7 +218,7 @@ const UnitDetails = () => {
     if (!propertyId || !unitId) return;
     setLoading(true);
     try {
-      const response = await api.patch(`/properties/${propertyId}/units/${unitId}`, {
+      await api.patch(`/properties/${propertyId}/units/${unitId}`, {
         unitNumber: form.unitNumber,
         unitType: form.unitType,
         floor: form.floor || undefined,
@@ -152,7 +227,7 @@ const UnitDetails = () => {
         deposit: Number(form.deposit),
         lastMeterReading: form.lastMeterReading ? Number(form.lastMeterReading) : undefined
       });
-      setUnit(response.data);
+      await load({ force: true });
       setShowEdit(false);
       toast.success('Unit updated.');
     } catch (err: any) {
@@ -164,6 +239,10 @@ const UnitDetails = () => {
 
   const deleteUnit = async () => {
     if (!propertyId || !unitId || !unit?.unitNumber) return;
+    if (unit.currentTenant) {
+      toast.error('Cannot deactivate a unit with an active tenant. Move the tenant out first.');
+      return;
+    }
     const ok = await confirmDialog({
       title: `Mark unit "${unit.unitNumber}" as inactive?`,
       description: 'This will hide it from active lists. You can restore it later.',
@@ -174,6 +253,7 @@ const UnitDetails = () => {
     setLoading(true);
     try {
       await api.delete(`/properties/${propertyId}/units/${unitId}`);
+      invalidateByTag('unit', propertyId);
       navigate(`/properties/${propertyId}`);
       toast.success('Unit marked inactive.');
     } catch (err: any) {
@@ -186,9 +266,9 @@ const UnitDetails = () => {
   const removeTenant = async () => {
     if (!propertyId || !unit?.currentTenant?._id) return;
     const ok = await confirmDialog({
-      title: `Mark "${unit.currentTenant.fullName}" as inactive?`,
+      title: `Move "${unit.currentTenant.fullName}" out?`,
       description: 'This moves them out of the active tenant list.',
-      confirmLabel: 'Deactivate',
+      confirmLabel: 'Move Out',
       danger: true
     });
     if (!ok) return;
@@ -196,7 +276,7 @@ const UnitDetails = () => {
     try {
       await api.patch(`/properties/${propertyId}/tenants/${unit.currentTenant._id}/move-out`);
       await refresh();
-      toast.success('Tenant marked inactive.');
+      toast.success('Tenant moved out.');
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Failed to update tenant.');
     } finally {
@@ -206,12 +286,26 @@ const UnitDetails = () => {
 
   const toggleMaintenance = async () => {
     if (!propertyId || !unitId) return;
+    const turningOn = !unit.maintenanceMode;
+    if (turningOn && unit.currentTenant) {
+      toast.error('Cannot turn on repair mode while a tenant is living in this unit. Move the tenant out first.');
+      return;
+    }
+    const ok = await confirmDialog({
+      title: turningOn ? 'Turn on repair mode for this unit?' : 'Turn off repair mode for this unit?',
+      description: turningOn
+        ? 'This marks the unit as under repair and blocks new tenant assignment until it is turned off.'
+        : 'This makes the unit available for tenant assignment again.',
+      confirmLabel: turningOn ? 'Turn On' : 'Turn Off',
+      danger: turningOn
+    });
+    if (!ok) return;
     setLoading(true);
     try {
       const response = await api.patch(`/properties/${propertyId}/units/${unitId}`, {
         maintenanceMode: !unit.maintenanceMode
       });
-      setUnit(response.data);
+      await load({ force: true });
       toast.success(response.data.maintenanceMode ? 'Repair mode turned on.' : 'Repair mode turned off.');
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Failed to update repair mode.');
@@ -221,16 +315,19 @@ const UnitDetails = () => {
   };
 
   if (!unit && loading) {
-    return <div className="text-sm text-[var(--muted)]">Loading unit...</div>;
+    return (
+      <div className="space-y-6">
+        <SkeletonDetailHeader actions={4} />
+        <SkeletonStatRow count={4} />
+        <SkeletonInfoCard fields={4} actions={3} />
+        <SkeletonTable columns={5} rows={5} tabCount={5} />
+      </div>
+    );
   }
 
   if (!unit) {
     return <div className="text-sm text-[var(--muted)]">Unit not found.</div>;
   }
-
-  const latestElectricity = utilityBills
-    .filter((bill) => String(bill.billType).toLowerCase().includes('electric'))
-    .sort((a, b) => (a.month < b.month ? 1 : -1))[0];
 
   const currentTenantPayments = payments.filter(
     (payment) => unit.currentTenant?._id && String(payment.tenantId) === String(unit.currentTenant._id)
@@ -241,21 +338,127 @@ const UnitDetails = () => {
     return sum;
   }, 0);
   const depositRemaining = Math.max(0, (unit.deposit || 0) - depositPaid);
-  const filteredPayments =
-    paymentFilter === 'all'
-      ? payments
-      : payments.filter((payment) => getPaymentCategory(payment) === paymentFilter);
+  const maintenancePayments = payments.filter((payment) => getPaymentCategory(payment) === 'maintenance');
+  const otherPayments = payments.filter((payment) => getPaymentCategory(payment) === 'deposit' || getPaymentCategory(payment) === 'other');
+
+  const rentDue = rentRecords
+    .filter((record) => record.status !== 'paid')
+    .reduce((sum, record) => sum + Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0)), 0);
+
+  const unitUtilityDue = utilityBills
+    .filter((bill) => bill.status !== 'paid')
+    .reduce((sum, bill) => sum + (bill.amount || 0), 0);
+
+  const nowForDues = new Date();
+  const maintenanceCollectedThisMonth = payments.some((payment) => {
+    if (payment.type !== 'maintenance' || !/maintenance collected/i.test(String(payment.notes || ''))) return false;
+    const paymentDate = new Date(payment.date);
+    return paymentDate.getMonth() === nowForDues.getMonth() && paymentDate.getFullYear() === nowForDues.getFullYear();
+  });
+  const unitMaintenanceDue =
+    unit.currentTenant && (property?.maintenanceCharge || 0) > 0 && !maintenanceCollectedThisMonth
+      ? property.maintenanceCharge
+      : 0;
+  const currentMonthKey = `${nowForDues.getFullYear()}-${String(nowForDues.getMonth() + 1).padStart(2, '0')}`;
+  const maintenanceRows = [
+    ...(unitMaintenanceDue > 0
+      ? [
+          {
+            _id: 'maintenance-due-current',
+            _isDue: true,
+            amount: unitMaintenanceDue,
+            date: nowForDues.toISOString(),
+            notes: `Maintenance due for ${formatMonthKey(currentMonthKey)}`
+          }
+        ]
+      : []),
+    ...maintenancePayments
+  ];
+
+  const oldestUnpaidRentRecord = rentRecords
+    .filter((record) => record.status !== 'paid')
+    .sort((a, b) => a.year * 100 + a.month - (b.year * 100 + b.month))[0];
+
+  const oldestUnpaidUtilityBill = utilityBills
+    .filter((bill) => bill.status !== 'paid')
+    .sort((a, b) => String(a.month).localeCompare(String(b.month)))[0];
+
+  const dueAlerts = [
+    unit.currentTenant && depositRemaining > 0
+      ? { key: 'deposit', label: `₹${formatCurrency(depositRemaining)} deposit due`, actionLabel: 'Pay', onAction: () => setShowDepositModal(true) }
+      : null,
+    rentDue > 0 && oldestUnpaidRentRecord
+      ? {
+          key: 'rent',
+          label: `₹${formatCurrency(rentDue)} rent due`,
+          actionLabel: 'Pay',
+          onAction: () => {
+            setRecordsTab('rentRecords');
+            setCollectRentRecord(oldestUnpaidRentRecord);
+            setCollectAmount(String(Math.max(0, (oldestUnpaidRentRecord.rentAmount || 0) - (oldestUnpaidRentRecord.paidAmount || 0))));
+          }
+        }
+      : null,
+    unitUtilityDue > 0 && oldestUnpaidUtilityBill
+      ? {
+          key: 'utility',
+          label: `₹${formatCurrency(unitUtilityDue)} utility due`,
+          actionLabel: 'Pay',
+          onAction: () => {
+            setRecordsTab('utilityBills');
+            markUtilityBillPaid(oldestUnpaidUtilityBill);
+          }
+        }
+      : null,
+    unitMaintenanceDue > 0
+      ? {
+          key: 'maintenance',
+          label: `₹${formatCurrency(unitMaintenanceDue)} maintenance due`,
+          actionLabel: 'Pay',
+          onAction: () => {
+            setRecordsTab('maintenance');
+            collectMaintenance();
+          }
+        }
+      : null
+  ].filter((alert): alert is { key: string; label: string; actionLabel: string; onAction: () => void } => Boolean(alert));
 
   const paymentColumns: TableColumn<any>[] = [
     { key: 'type', label: 'Type', accessor: (payment) => formatPaymentType(payment) },
-    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${payment.amount}` },
+    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${formatCurrency(payment.amount)}` },
     { key: 'date', label: 'Date', accessor: (payment) => new Date(payment.date).getTime(), render: (payment) => formatDate(payment.date) },
-    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
+    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' },
+    { key: 'status', label: 'Status', sortable: false, render: () => <Badge tone="success">Paid</Badge> }
+  ];
+
+  const maintenanceColumns: TableColumn<any>[] = [
+    { key: 'amount', label: 'Amount', accessor: (row) => row.amount, render: (row) => `₹${formatCurrency(row.amount)}` },
+    { key: 'date', label: 'Date', accessor: (row) => new Date(row.date).getTime(), render: (row) => formatDate(row.date) },
+    { key: 'notes', label: 'Notes', accessor: (row) => row.notes || '-' },
+    {
+      key: 'status',
+      label: 'Status',
+      sortable: false,
+      render: (row) => <Badge tone={row._isDue ? 'danger' : 'success'}>{row._isDue ? 'Due' : 'Paid'}</Badge>
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      sortable: false,
+      render: (row) =>
+        row._isDue ? (
+          <button className="btn btn-sm btn-success" disabled={maintenanceSaving} onClick={collectMaintenance}>
+            {maintenanceSaving ? 'Saving...' : 'Pay'}
+          </button>
+        ) : (
+          <span className="text-xs text-[var(--muted)]">-</span>
+        )
+    }
   ];
 
   const rentRecordColumns: TableColumn<any>[] = [
     { key: 'month', label: 'Month', accessor: (record) => record.year * 100 + record.month, render: (record) => formatMonthYear(record.month, record.year) },
-    { key: 'amount', label: 'Amount', accessor: (record) => record.rentAmount, render: (record) => `₹${record.rentAmount}` },
+    { key: 'amount', label: 'Amount', accessor: (record) => record.rentAmount, render: (record) => `₹${formatCurrency(record.rentAmount)}` },
     {
       key: 'status',
       label: 'Status',
@@ -266,6 +469,66 @@ const UnitDetails = () => {
         { value: 'unpaid', label: 'Unpaid' }
       ],
       render: (record) => <Badge tone={paymentStatusTone(record.status)}>{record.status}</Badge>
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      sortable: false,
+      render: (record) =>
+        record.status !== 'paid' ? (
+          <button
+            className="btn btn-sm btn-success"
+            onClick={() => {
+              setCollectRentRecord(record);
+              setCollectAmount(String(Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0))));
+            }}
+          >
+            Pay
+          </button>
+        ) : (
+          <span className="text-xs text-[var(--muted)]">-</span>
+        )
+    }
+  ];
+
+  const tenantHistoryColumns: TableColumn<any>[] = [
+    { key: 'fullName', label: 'Name', accessor: (tenant) => tenant.fullName },
+    { key: 'phone', label: 'Phone', accessor: (tenant) => tenant.phone },
+    { key: 'email', label: 'Email', accessor: (tenant) => tenant.email || '-' },
+    {
+      key: 'movedInDate',
+      label: 'In',
+      accessor: (tenant) => new Date(tenant.movedInDate || tenant.createdAt).getTime(),
+      render: (tenant) => formatDate(tenant.movedInDate || tenant.createdAt)
+    },
+    {
+      key: 'movedOutDate',
+      label: 'Out',
+      accessor: (tenant) => (tenant.movedOutDate ? new Date(tenant.movedOutDate).getTime() : null),
+      render: (tenant) => formatDate(tenant.movedOutDate)
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      accessor: (tenant) => (tenant.isActive ? 'Active' : 'Moved Out'),
+      filterOptions: [
+        { value: 'Active', label: 'Active' },
+        { value: 'Moved Out', label: 'Moved Out' }
+      ],
+      render: (tenant) => <Badge tone={tenant.isActive ? 'success' : 'neutral'}>{tenant.isActive ? 'Active' : 'Moved Out'}</Badge>
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      sortable: false,
+      render: (tenant) => (
+        <button
+          className="btn btn-sm btn-info"
+          onClick={() => navigate(`/properties/${propertyId}/tenants/${tenant._id}`)}
+        >
+          View
+        </button>
+      )
     }
   ];
 
@@ -273,7 +536,7 @@ const UnitDetails = () => {
     { key: 'billType', label: 'Type', accessor: (bill) => bill.billType },
     { key: 'month', label: 'Month', accessor: (bill) => bill.month, render: (bill) => formatMonthKey(bill.month) },
     { key: 'units', label: 'Units', accessor: (bill) => bill.unitsConsumed },
-    { key: 'amount', label: 'Amount', accessor: (bill) => bill.amount, render: (bill) => `₹${bill.amount}` },
+    { key: 'amount', label: 'Amount', accessor: (bill) => bill.amount, render: (bill) => `₹${formatCurrency(bill.amount)}` },
     {
       key: 'status',
       label: 'Status',
@@ -284,21 +547,70 @@ const UnitDetails = () => {
         { value: 'unpaid', label: 'Unpaid' }
       ],
       render: (bill) => <Badge tone={paymentStatusTone(bill.status)}>{bill.status}</Badge>
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      sortable: false,
+      render: (bill) =>
+        bill.status !== 'paid' ? (
+          <button
+            className="btn btn-sm btn-success"
+            disabled={utilitySavingId === bill._id}
+            onClick={() => markUtilityBillPaid(bill)}
+          >
+            {utilitySavingId === bill._id ? 'Saving...' : 'Pay'}
+          </button>
+        ) : (
+          <span className="text-xs text-[var(--muted)]">-</span>
+        )
     }
   ];
 
+  const recordsTabBar = (
+    [
+      { key: 'payments', label: 'Payments' },
+      { key: 'rentRecords', label: 'Rent Records' },
+      { key: 'utilityBills', label: 'Utility Bills' },
+      { key: 'maintenance', label: 'Maintenance' },
+      { key: 'others', label: 'Others' }
+    ] as const
+  ).map((tab) => (
+    <button
+      key={tab.key}
+      className={`px-4 py-2 rounded-full text-sm border ${
+        recordsTab === tab.key
+          ? 'bg-[var(--accent)] text-white border-transparent'
+          : 'border-black/10 text-[var(--muted)]'
+      }`}
+      onClick={() => setRecordsTab(tab.key)}
+    >
+      {tab.label}
+    </button>
+  ));
+
   return (
     <div className="space-y-6">
-      <div className="card p-6 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="card p-6">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-start">
           <div>
-            <div className="text-lg font-semibold">
-              Unit {unit.unitNumber}
-              {property?.name ? ` • ${property.name}` : ''}
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-semibold">Unit {unit.unitNumber}</span>
+              {property?.name && <span className="text-sm font-normal text-[var(--muted)]">{property.name}</span>}
             </div>
-            <div className="text-sm text-[var(--muted)]">{unitTypeLabels[unit.unitType] || unit.unitType}</div>
-            <div className="text-xs text-[var(--muted)] mt-1">
-              Floor {unit.floor || '-'} • Status {formatUnitStatus(unit.status)}
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-[var(--text)]">
+                {unitTypeLabels[unit.unitType] || unit.unitType}
+              </span>
+              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-[var(--muted)]">
+                Floor {unit.floor || '-'}
+              </span>
+              {unit.size && (
+                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-[var(--muted)]">
+                  {unit.size} sq ft
+                </span>
+              )}
+              <Badge tone={unitStatusTone(unit.status)}>{formatUnitStatus(unit.status)}</Badge>
             </div>
             {unit.maintenanceMode && unit.maintenanceUntil && (
               <div className="text-xs text-[var(--muted)] mt-1">
@@ -306,94 +618,89 @@ const UnitDetails = () => {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              className={`btn ${unit.maintenanceMode ? 'btn-maintenance-active' : 'btn-maintenance'}`}
-              onClick={toggleMaintenance}
-            >
-              {unit.maintenanceMode ? 'Turn Off Repair Mode' : 'Turn On Repair Mode'}
-            </button>
-            <button
-              className="btn btn-info"
-              onClick={() => navigate(`/properties/${propertyId}`)}
-            >
-              View Property
-            </button>
-            <button
-              className="btn btn-warning"
-              onClick={() => setShowEdit(true)}
-            >
-              Edit
-            </button>
-            <button
-              className="btn btn-danger"
-              onClick={deleteUnit}
-            >
-              Deactivate
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <StatCard label="Monthly Rent" value={`₹${unit.monthlyRent}`} icon={<TransactionsIcon width={18} height={18} />} />
-        <StatCard label="Deposit" value={`₹${unit.deposit}`} icon={<ShieldIcon width={18} height={18} />} />
-        <StatCard label="Deposit Paid" value={`₹${depositPaid}`} tone="success" icon={<ShieldIcon width={18} height={18} />} />
-        <StatCard label="Deposit Remaining" value={`\u20B9${depositRemaining}`} tone={depositRemaining > 0 ? 'warning' : 'success'} icon={<ShieldIcon width={18} height={18} />} />
-        <StatCard label="Tenant" value={unit.currentTenant?.fullName || 'Vacant'} icon={<TenantsIcon width={18} height={18} />} />
-      </div>
-
-      <div className="card p-6 space-y-3 text-sm">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Unit Number</div>
-            <div className="font-medium">{unit.unitNumber}</div>
-          </div>
-          <div>
-            <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Type</div>
-            <div className="font-medium">{unitTypeLabels[unit.unitType] || unit.unitType}</div>
-          </div>
-          <div>
-            <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Floor</div>
-            <div className="font-medium">{unit.floor || '-'}</div>
-          </div>
-          <div>
-            <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Size</div>
-            <div className="font-medium">{unit.size || '-'}</div>
-          </div>
-          <div>
-            <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Status</div>
-            <div className="mt-1"><Badge tone={unitStatusTone(unit.status)}>{formatUnitStatus(unit.status)}</Badge></div>
-          </div>
-          <div>
-            <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Meter Reading</div>
-            <div className="font-medium">{unit.lastMeterReading ?? 0}</div>
-          </div>
-          <div>
-            <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Meter Reading Date</div>
-            <div className="font-medium">
-              {formatDate(unit.lastMeterReadingDate)}
+          <div className="flex flex-col items-start md:items-end gap-2">
+            <div className="flex flex-wrap items-center gap-2 md:justify-end">
+              <button
+                className={`btn ${unit.maintenanceMode ? 'btn-maintenance-active' : 'btn-maintenance'}`}
+                onClick={toggleMaintenance}
+                disabled={!unit.maintenanceMode && Boolean(unit.currentTenant)}
+                title={!unit.maintenanceMode && unit.currentTenant ? 'Move the tenant out before turning on repair mode.' : undefined}
+              >
+                {unit.maintenanceMode ? 'Turn Off Repair Mode' : 'Turn On Repair Mode'}
+              </button>
+              <button
+                className="btn btn-info"
+                onClick={() => navigate(`/properties/${propertyId}`)}
+              >
+                View Property
+              </button>
+              <button
+                className="btn btn-warning"
+                onClick={() => setShowEdit(true)}
+              >
+                Edit
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={deleteUnit}
+                disabled={Boolean(unit.currentTenant)}
+                title={unit.currentTenant ? 'Move the tenant out before deactivating this unit.' : undefined}
+              >
+                Deactivate
+              </button>
             </div>
-          </div>
-          <div>
-            <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Latest Electricity Reading</div>
-            <div className="font-medium">{latestElectricity ? latestElectricity.meterEnd : '-'}</div>
-          </div>
-          <div>
-            <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Electricity Bill Month</div>
-            <div className="font-medium">{latestElectricity ? formatMonthKey(latestElectricity.month) : '-'}</div>
-          </div>
-          <div>
-            <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Tenant</div>
-            <div className="font-medium">{unit.currentTenant?.fullName || '-'}</div>
+            {dueAlerts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                {dueAlerts.map((alert) => (
+                  <div key={alert.key} className="flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 pl-3 pr-1.5 py-1.5">
+                    <AlertTriangleIcon width={13} height={13} className="text-amber-600 shrink-0" />
+                    <span className="text-xs font-medium text-amber-700 whitespace-nowrap">{alert.label}</span>
+                    <button
+                      className="btn btn-sm btn-success !py-1"
+                      onClick={alert.onAction}
+                    >
+                      {alert.actionLabel}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard label="Monthly Rent" value={`₹${formatCurrency(unit.monthlyRent)}`} icon={<TransactionsIcon width={18} height={18} />} />
+        <StatCard label="Deposit" value={`₹${formatCurrency(unit.deposit)}`} icon={<ShieldIcon width={18} height={18} />} />
+        <StatCard
+          label="Deposit Paid"
+          value={`₹${formatCurrency(depositPaid)}`}
+          subLabel={`₹${formatCurrency(depositRemaining)} remaining`}
+          tone={depositRemaining > 0 ? 'warning' : 'success'}
+          icon={<ShieldIcon width={18} height={18} />}
+        />
+        <StatCard
+          label="Meter Reading"
+          value={unit.lastMeterReading ?? 0}
+          subLabel={
+            <>
+              Last read <span className="font-semibold text-[var(--text)]">{formatDate(unit.lastMeterReadingDate)}</span>
+            </>
+          }
+          icon={<UtilitiesIcon width={18} height={18} />}
+        />
       </div>
 
       <div className="card p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="text-sm font-semibold">Current Tenant</div>
           <div className="flex items-center gap-2">
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={() => setShowTenantHistory(true)}
+            >
+              Show History
+            </button>
             {unit.currentTenant ? (
               <>
                 <button
@@ -414,7 +721,7 @@ const UnitDetails = () => {
                   className="btn btn-sm btn-danger"
                   onClick={removeTenant}
                 >
-                  Deactivate
+                  Move Out
                 </button>
               </>
             ) : (
@@ -432,90 +739,106 @@ const UnitDetails = () => {
           </div>
         </div>
         {unit.currentTenant ? (
-          <div className="text-sm space-y-1">
-            <div className="font-medium">{unit.currentTenant.fullName}</div>
-            <div className="text-[var(--muted)]">{unit.currentTenant.phone}</div>
-            {unit.currentTenant.email && <div className="text-[var(--muted)]">{unit.currentTenant.email}</div>}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Name</div>
+              <div className="font-medium">{unit.currentTenant.fullName}</div>
+            </div>
+            <div>
+              <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Phone</div>
+              <div className="font-medium">{unit.currentTenant.phone}</div>
+            </div>
+            <div>
+              <div className="text-xs text-[var(--muted)] uppercase tracking-wide">Email</div>
+              <div className="font-medium">{unit.currentTenant.email || '-'}</div>
+            </div>
+            <div>
+              <div className="text-xs text-[var(--muted)] uppercase tracking-wide">In</div>
+              <div className="font-medium">{formatDate(unit.currentTenant.movedInDate || unit.currentTenant.createdAt)}</div>
+            </div>
           </div>
         ) : (
           <div className="text-sm text-[var(--muted)]">No active tenant.</div>
         )}
       </div>
 
-      <div className="card p-6">
-        <div className="text-sm font-semibold mb-4">Tenant History</div>
-        <div className="space-y-3 text-sm">
-          {tenants.map((tenant) => (
-            <div key={tenant._id} className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-medium">{tenant.fullName}</div>
-                <div className="text-xs text-[var(--muted)]">{tenant.phone}</div>
-                {tenant.email && <div className="text-xs text-[var(--muted)]">{tenant.email}</div>}
-              </div>
-              <div className="text-right">
-                <Badge tone={tenant.isActive ? 'success' : 'neutral'}>
-                  {tenant.isActive ? 'Active' : 'Moved Out'}
-                </Badge>
-              </div>
-              <button
-                className="btn btn-sm btn-info"
-                onClick={() => navigate(`/properties/${propertyId}/tenants/${tenant._id}`)}
-              >
-                View
+      {showTenantHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-6">
+          <div className="w-full max-w-4xl bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-lg font-semibold">Tenant History</div>
+              <button className="modal-close-btn" onClick={() => setShowTenantHistory(false)} aria-label="Close">
+                <CloseIcon width={18} height={18} />
               </button>
             </div>
-          ))}
-          {!tenants.length && <div className="text-[var(--muted)]">No tenant history.</div>}
+            <SortableTable
+              columns={tenantHistoryColumns}
+              data={tenants}
+              rowKey={(tenant) => tenant._id}
+              searchPlaceholder="Search tenant history by name, phone, email..."
+              emptyIcon={<TenantsIcon width={22} height={22} />}
+              emptyTitle="No tenant history"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       <div>
-        <div className="text-sm font-semibold mb-3">Payments</div>
-        <SortableTable
-          columns={paymentColumns}
-          data={filteredPayments}
-          rowKey={(payment) => payment._id}
-          searchPlaceholder="Search payments by type, notes..."
-          emptyIcon={<TransactionsIcon width={22} height={22} />}
-          emptyTitle={paymentFilter === 'all' ? 'No payments yet' : `No ${paymentFilter} payments found`}
-          extraToolbar={
-            <select
-              className="py-2 pl-3 pr-3 text-sm"
-              value={paymentFilter}
-              onChange={(e) => setPaymentFilter(e.target.value as (typeof paymentFilterOptions)[number]['value'])}
-            >
-              {paymentFilterOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          }
-        />
-      </div>
-
-      <div>
-        <div className="text-sm font-semibold mb-3">Rent Records</div>
-        <SortableTable
-          columns={rentRecordColumns}
-          data={rentRecords}
-          rowKey={(record) => record._id}
-          searchPlaceholder="Search rent records..."
-          emptyIcon={<TransactionsIcon width={22} height={22} />}
-          emptyTitle="No rent records yet"
-        />
-      </div>
-
-      <div>
-        <div className="text-sm font-semibold mb-3">Utility Bills</div>
-        <SortableTable
-          columns={utilityBillColumns}
-          data={utilityBills}
-          rowKey={(bill) => bill._id}
-          searchPlaceholder="Search utility bills..."
-          emptyIcon={<TransactionsIcon width={22} height={22} />}
-          emptyTitle="No utility bills yet"
-        />
+        {recordsTab === 'payments' && (
+          <SortableTable
+            columns={paymentColumns}
+            data={payments}
+            rowKey={(payment) => payment._id}
+            tabs={recordsTabBar}
+            searchPlaceholder="Search payments by type, notes..."
+            emptyIcon={<TransactionsIcon width={22} height={22} />}
+            emptyTitle="No payments yet"
+          />
+        )}
+        {recordsTab === 'rentRecords' && (
+          <SortableTable
+            columns={rentRecordColumns}
+            data={rentRecords}
+            rowKey={(record) => record._id}
+            tabs={recordsTabBar}
+            searchPlaceholder="Search rent records..."
+            emptyIcon={<TransactionsIcon width={22} height={22} />}
+            emptyTitle="No rent records yet"
+          />
+        )}
+        {recordsTab === 'utilityBills' && (
+          <SortableTable
+            columns={utilityBillColumns}
+            data={utilityBills}
+            rowKey={(bill) => bill._id}
+            tabs={recordsTabBar}
+            searchPlaceholder="Search utility bills..."
+            emptyIcon={<TransactionsIcon width={22} height={22} />}
+            emptyTitle="No utility bills yet"
+          />
+        )}
+        {recordsTab === 'maintenance' && (
+          <SortableTable
+            columns={maintenanceColumns}
+            data={maintenanceRows}
+            rowKey={(row) => row._id}
+            tabs={recordsTabBar}
+            searchPlaceholder="Search maintenance..."
+            emptyIcon={<TransactionsIcon width={22} height={22} />}
+            emptyTitle="No maintenance records yet"
+          />
+        )}
+        {recordsTab === 'others' && (
+          <SortableTable
+            columns={paymentColumns}
+            data={otherPayments}
+            rowKey={(payment) => payment._id}
+            tabs={recordsTabBar}
+            searchPlaceholder="Search other payments..."
+            emptyIcon={<TransactionsIcon width={22} height={22} />}
+            emptyTitle="No other payments yet"
+          />
+        )}
       </div>
 
       {showEdit && (
@@ -563,10 +886,10 @@ const UnitDetails = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-[var(--muted)]">Size</label>
+                  <label className="text-xs text-[var(--muted)]">Size in sq ft</label>
                   <input
                     className="w-full px-3 py-2 mt-1"
-                    placeholder="Size"
+                    placeholder="e.g. 850"
                     value={form.size}
                     onChange={(e) => updateField('size', e.target.value)}
                   />
@@ -642,6 +965,45 @@ const UnitDetails = () => {
           paidDeposit={depositPaid}
           onSaved={refresh}
         />
+      )}
+
+      {collectRentRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-6">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <div className="text-lg font-semibold">Collect Rent</div>
+                <div className="text-sm text-[var(--muted)]">{formatMonthYear(collectRentRecord.month, collectRentRecord.year)}</div>
+              </div>
+              <button
+                className="modal-close-btn"
+                onClick={() => setCollectRentRecord(null)}
+                disabled={collectSaving}
+                aria-label="Close"
+              >
+                <CloseIcon width={18} height={18} />
+              </button>
+            </div>
+            <label className="text-xs text-[var(--muted)]">Amount Received</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              className="mt-1 w-full px-3 py-2"
+              value={collectAmount}
+              onChange={(e) => setCollectAmount(e.target.value)}
+              autoFocus
+            />
+            <div className="mt-4 flex items-center gap-3">
+              <button className="btn btn-primary" disabled={collectSaving} onClick={collectRent}>
+                {collectSaving ? 'Saving...' : 'Collect'}
+              </button>
+              <button className="btn btn-cancel" disabled={collectSaving} onClick={() => setCollectRentRecord(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

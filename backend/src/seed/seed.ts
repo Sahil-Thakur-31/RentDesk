@@ -198,7 +198,7 @@ const run = async () => {
     }
   ]);
 
-  const [karan, nisha, meera] = await Tenant.create([
+  const [karan, nisha, meera, rohan] = await Tenant.create([
     {
       propertyId: thakurNivas._id,
       unitId: unitA1._id,
@@ -216,7 +216,8 @@ const run = async () => {
         idProofBase64: fakeBase64('karan-id-proof'),
         policeVerificationBase64: fakeBase64('karan-police-verification')
       },
-      isActive: true
+      isActive: true,
+      movedInDate: dayjs().subtract(5, 'month').date(3).toDate()
     },
     {
       propertyId: thakurNivas._id,
@@ -235,6 +236,7 @@ const run = async () => {
         idProofBase64: fakeBase64('nisha-id-proof')
       },
       isActive: false,
+      movedInDate: dayjs().subtract(10, 'month').date(1).toDate(),
       movedOutDate: dayjs().subtract(2, 'month').toDate()
     },
     {
@@ -253,7 +255,28 @@ const run = async () => {
       documents: {
         idProofBase64: fakeBase64('meera-gst-certificate')
       },
-      isActive: true
+      isActive: true,
+      movedInDate: dayjs().subtract(6, 'month').date(10).toDate()
+    },
+    {
+      propertyId: thakurNivas._id,
+      unitId: unitA2._id,
+      fullName: 'Rohan Deshmukh',
+      phone: '9822334455',
+      email: 'rohan.deshmukh@example.com',
+      idProofType: 'Aadhaar',
+      idProofNumber: '5566-7788-9900',
+      emergencyContact: 'Sunita Deshmukh - 9822334400',
+      rentAmount: unitA2.monthlyRent,
+      depositAmount: unitA2.deposit,
+      assignedUnit: unitA2._id,
+      photoBase64: fakeBase64('rohan-photo'),
+      documents: {
+        idProofBase64: fakeBase64('rohan-id-proof'),
+        policeVerificationBase64: fakeBase64('rohan-police-verification')
+      },
+      isActive: true,
+      movedInDate: dayjs().subtract(20, 'day').toDate()
     }
   ]);
 
@@ -261,6 +284,10 @@ const run = async () => {
     Unit.findByIdAndUpdate(unitA1._id, {
       status: 'occupied',
       currentTenant: karan._id
+    }),
+    Unit.findByIdAndUpdate(unitA2._id, {
+      status: 'occupied',
+      currentTenant: rohan._id
     }),
     Unit.findByIdAndUpdate(shop101._id, {
       status: 'occupied',
@@ -363,7 +390,9 @@ const run = async () => {
       month: current.month,
       year: current.year,
       rentAmount: unitA1.monthlyRent,
-      status: 'unpaid',
+      status: 'paid',
+      paidAmount: unitA1.monthlyRent,
+      paidDate: dayjs(current.date).date(4).toDate(),
       paymentMode: 'UPI'
     },
     {
@@ -389,6 +418,16 @@ const run = async () => {
       paidAmount: 18000,
       paidDate: dayjs(current.date).date(8).toDate(),
       paymentMode: 'Bank Transfer'
+    },
+    {
+      propertyId: thakurNivas._id,
+      unitId: unitA2._id,
+      tenantId: rohan._id,
+      month: current.month,
+      year: current.year,
+      rentAmount: unitA2.monthlyRent,
+      status: 'unpaid',
+      paymentMode: 'UPI'
     }
   ]);
 
@@ -457,6 +496,15 @@ const run = async () => {
       notes: 'Security deposit returned on move out'
     },
     {
+      type: 'deposit',
+      amount: unitA2.deposit,
+      date: dayjs().subtract(20, 'day').toDate(),
+      propertyId: thakurNivas._id,
+      unitId: unitA2._id,
+      tenantId: rohan._id,
+      notes: 'Security deposit collected'
+    },
+    {
       type: 'rent',
       amount: unitA1.monthlyRent,
       date: dayjs(prev1.date).date(3).toDate(),
@@ -466,6 +514,17 @@ const run = async () => {
       notes: `Rent received for ${prev1.key}`,
       sourceType: 'rentRecord',
       sourceId: rentRecords[0]._id
+    },
+    {
+      type: 'rent',
+      amount: unitA1.monthlyRent,
+      date: dayjs(current.date).date(4).toDate(),
+      propertyId: thakurNivas._id,
+      unitId: unitA1._id,
+      tenantId: karan._id,
+      notes: `Rent received for ${current.key}`,
+      sourceType: 'rentRecord',
+      sourceId: rentRecords[1]._id
     },
     {
       type: 'rent',
@@ -578,6 +637,14 @@ const run = async () => {
       mimeType: 'text/plain',
       base64: fakeBase64('meera-doc'),
       createdBy: owner._id
+    },
+    {
+      ownerType: 'tenant',
+      ownerId: rohan._id,
+      name: 'rohan-id-proof.txt',
+      mimeType: 'text/plain',
+      base64: fakeBase64('rohan-doc'),
+      createdBy: owner._id
     }
   ]);
 
@@ -591,12 +658,12 @@ const run = async () => {
   console.log('- 3 users');
   console.log('- 2 properties');
   console.log('- 5 units');
-  console.log('- 3 tenants (2 active, 1 moved out)');
-  console.log('- 4 rent records');
+  console.log('- 4 tenants (3 active, 1 moved out)');
+  console.log('- 5 rent records');
   console.log('- 5 electricity bills');
   console.log('- 3 maintenance expenses');
-  console.log('- 14 payments');
-  console.log('- 2 stored documents');
+  console.log('- 16 payments');
+  console.log('- 3 stored documents');
 };
 
 run()

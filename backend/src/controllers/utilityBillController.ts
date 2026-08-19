@@ -1,3 +1,4 @@
+import { Types, type PipelineStage } from 'mongoose';
 import { asyncHandler } from '../utils/asyncHandler';
 import { HttpError } from '../utils/httpError';
 import { UtilityBill, type IUtilityBillDocument } from '../models/UtilityBill';
@@ -6,6 +7,8 @@ import { Unit } from '../models/Unit';
 import { Payment } from '../models/Payment';
 import { ensureBase64OrThrow } from '../utils/base64';
 import { optionalString, requireString } from '../utils/request';
+import { emitPortfolioEvent } from '../ws/emit';
+import { buildPaginatedResult, buildSearchRegexStage, isPaginatedRequest, parseListQuery, runPaginatedAggregate } from '../utils/listQuery';
 
 const calculateElectricityAmount = (unitsConsumed: number, rate: number, common: number) => Math.floor(unitsConsumed * rate + common);
 
@@ -45,8 +48,49 @@ export const listUtilityBills = asyncHandler(async (req, res) => {
     else if (raw.length > 1) query.status = { $in: raw };
   }
 
-  const bills = await UtilityBill.find(query).sort({ createdAt: -1 }).populate('unitId', 'unitNumber');
-  res.json(bills);
+  const listParams = parseListQuery(req.query);
+
+  if (!isPaginatedRequest(listParams)) {
+    const bills = await UtilityBill.find(query).sort({ createdAt: -1 }).populate('unitId', 'unitNumber');
+    res.json(bills);
+    return;
+  }
+
+  const matchStage: Record<string, unknown> = { propertyId: new Types.ObjectId(propertyId) };
+  if (query.month != null) matchStage.month = query.month;
+  if (query.billType != null) matchStage.billType = query.billType;
+  if (query.unitId != null) matchStage.unitId = new Types.ObjectId(String(query.unitId));
+  if (query.status != null) matchStage.status = query.status;
+
+  const pipeline: PipelineStage[] = [
+    { $match: matchStage },
+    {
+      $lookup: { from: 'units', localField: 'unitId', foreignField: '_id', as: 'unitId' }
+    },
+    { $unwind: { path: '$unitId', preserveNullAndEmptyArrays: true } },
+    {
+      $addFields: {
+        unitId: { _id: '$unitId._id', unitNumber: '$unitId.unitNumber' }
+      }
+    }
+  ];
+
+  const searchStage = buildSearchRegexStage(['unitId.unitNumber', 'billType'], listParams.search);
+  if (searchStage) pipeline.push({ $match: searchStage });
+
+  const sortDirection = listParams.sortDir === 'desc' ? -1 : 1;
+  const sortFieldMap: Record<string, string> = {
+    month: 'month',
+    units: 'unitsConsumed',
+    amount: 'amount',
+    status: 'status'
+  };
+  const sortField = sortFieldMap[listParams.sortKey || ''] || 'createdAt';
+  const sortStage: Record<string, 1 | -1> = listParams.sortKey ? { [sortField]: sortDirection } : { createdAt: -1 };
+  pipeline.push({ $sort: { ...sortStage, _id: 1 } });
+
+  const { data, total } = await runPaginatedAggregate(UtilityBill, pipeline, listParams);
+  res.json(buildPaginatedResult(data, total, listParams));
 });
 
 export const getUtilityBill = asyncHandler(async (req, res) => {
@@ -94,12 +138,16 @@ export const createUtilityBill = asyncHandler(async (req, res) => {
   if (isElectricity) {
     const property = await Property.findById(propertyId).select('electricityUnitRate commonElectricityCharge');
     await recalculateElectricityTimeline(propertyId, String(bill.unitId), property?.electricityUnitRate || 0, property?.commonElectricityCharge || 0);
+    emitPortfolioEvent(req, { resource: 'utilityBill', action: 'bulkRecalc', id: String(bill.unitId) });
+    emitPortfolioEvent(req, { resource: 'unit', action: 'update', id: String(bill.unitId) });
   } else {
     await Unit.updateOne({ _id: bill.unitId, propertyId: bill.propertyId }, { $set: { lastMeterReading: bill.meterEnd, lastMeterReadingDate: new Date() } });
+    emitPortfolioEvent(req, { resource: 'utilityBill', action: 'create', id: String(bill._id), data: bill, meta: { monthKey: bill.month } });
+    emitPortfolioEvent(req, { resource: 'unit', action: 'update', id: String(bill.unitId) });
   }
 
   if (bill.status === 'paid' || bill.status === 'partial') {
-    await Payment.create({
+    const payment = await Payment.create({
       type: 'utility',
       amount: bill.amount,
       date: new Date(),
@@ -109,6 +157,7 @@ export const createUtilityBill = asyncHandler(async (req, res) => {
       sourceType: 'utilityBill',
       sourceId: bill._id
     });
+    emitPortfolioEvent(req, { resource: 'payment', action: 'create', id: String(payment._id), data: payment });
   }
 
   res.status(201).json(bill);
@@ -130,13 +179,19 @@ export const updateUtilityBill = asyncHandler(async (req, res) => {
     if (String(bill.billType).toLowerCase() === 'electricity') {
       const property = await Property.findById(propertyId).select('electricityUnitRate commonElectricityCharge');
       await recalculateElectricityTimeline(propertyId, String(bill.unitId), property?.electricityUnitRate || 0, property?.commonElectricityCharge || 0);
+      emitPortfolioEvent(req, { resource: 'utilityBill', action: 'bulkRecalc', id: String(bill.unitId) });
+      emitPortfolioEvent(req, { resource: 'unit', action: 'update', id: String(bill.unitId) });
     } else {
       await Unit.updateOne({ _id: bill.unitId, propertyId: bill.propertyId }, { $set: { lastMeterReading: bill.meterEnd, lastMeterReadingDate: new Date() } });
+      emitPortfolioEvent(req, { resource: 'utilityBill', action: 'update', id: String(bill._id), data: bill, meta: { monthKey: bill.month } });
+      emitPortfolioEvent(req, { resource: 'unit', action: 'update', id: String(bill.unitId) });
     }
+  } else {
+    emitPortfolioEvent(req, { resource: 'utilityBill', action: 'update', id: String(bill._id), data: bill, meta: { monthKey: bill.month } });
   }
 
   if ((bill.status === 'paid' || bill.status === 'partial') && previousStatus !== bill.status) {
-    await Payment.create({
+    const payment = await Payment.create({
       type: 'utility',
       amount: bill.amount,
       date: new Date(),
@@ -146,6 +201,7 @@ export const updateUtilityBill = asyncHandler(async (req, res) => {
       sourceType: 'utilityBill',
       sourceId: bill._id
     });
+    emitPortfolioEvent(req, { resource: 'payment', action: 'create', id: String(payment._id), data: payment });
   }
   res.json(bill);
 });
@@ -207,7 +263,10 @@ export const bulkElectricityReadings = asyncHandler(async (req, res) => {
     }
 
     await recalculateElectricityTimeline(propertyId, String(unit._id), rate, common);
+    emitPortfolioEvent(req, { resource: 'unit', action: 'update', id: String(unit._id) });
   }
+
+  emitPortfolioEvent(req, { resource: 'utilityBill', action: 'bulkRecalc' });
 
   res.json({ created: results.length, bills: results });
 });
@@ -267,5 +326,6 @@ export const deleteUtilityBill = asyncHandler(async (req, res) => {
   if (!bill) throw new HttpError(404, 'Utility bill not found');
 
   await bill.deleteOne();
+  emitPortfolioEvent(req, { resource: 'utilityBill', action: 'delete', id: String(bill._id), meta: { monthKey: bill.month } });
   res.json({ message: 'Utility bill deleted' });
 });

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useNotificationsFeed } from '../lib/notificationCenter';
-import { useSyncStatus } from '../lib/offlineSync';
+import { useRealtimeStatus, disconnectRealtime } from '../lib/realtimeSocket';
+import { invalidateAll } from '../lib/queryCache';
 import { appStorage } from '../lib/appStorage';
 import { useI18n } from '../lib/i18n';
 import { BellIcon, CalendarIcon, ChevronDownIcon, LogoutIcon, SettingsIcon, UserIcon, WifiOffIcon } from './icons';
@@ -26,7 +27,7 @@ const TopBar = () => {
   const [showProfile, setShowProfile] = useState(false);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const profileRef = useRef<HTMLDivElement | null>(null);
-  const syncStatus = useSyncStatus();
+  const realtimeStatus = useRealtimeStatus();
   const { notifications } = useNotificationsFeed();
 
   const recentNotifications = useMemo(() => notifications.slice(0, 4), [notifications]);
@@ -62,6 +63,8 @@ const TopBar = () => {
   }, []);
 
   const logout = () => {
+    disconnectRealtime();
+    invalidateAll();
     appStorage.removeItem('rentdesk_token');
     appStorage.removeItem('rentdesk_active_portfolio_id');
     navigate('/login');
@@ -93,13 +96,14 @@ const TopBar = () => {
         ? t('Property Details')
         : t(titleMap[location.pathname] || 'RentDesk');
 
-  const syncLabel = !syncStatus.isOnline
-    ? `${t('Offline')}${syncStatus.pendingCount ? ` - ${syncStatus.pendingCount} ${t('queued')}` : ''}`
-    : syncStatus.isSyncing
-      ? `${t('Syncing')}${syncStatus.pendingCount ? ` - ${syncStatus.pendingCount} ${t('queued')}` : ''}`
-      : syncStatus.pendingCount > 0
-        ? `${syncStatus.pendingCount} ${t('queued')}`
-        : t('Online');
+  const syncLabel =
+    realtimeStatus === 'connected'
+      ? t('Online')
+      : realtimeStatus === 'connecting'
+        ? t('Connecting')
+        : realtimeStatus === 'reconnecting'
+          ? t('Reconnecting')
+          : t('Offline');
 
   const unreadCount = notifications.length;
 
@@ -113,19 +117,21 @@ const TopBar = () => {
       <div className="flex items-center gap-2.5">
         <div
           className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold border ${
-            !syncStatus.isOnline
+            realtimeStatus === 'offline'
               ? 'border-amber-200 bg-amber-50 text-amber-700'
-              : syncStatus.isSyncing
+              : realtimeStatus === 'connecting' || realtimeStatus === 'reconnecting'
                 ? 'border-sky-200 bg-sky-50 text-sky-700'
-                : syncStatus.pendingCount > 0
-                  ? 'border-violet-200 bg-violet-50 text-violet-700'
-                  : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
           }`}
         >
-          {!syncStatus.isOnline ? (
+          {realtimeStatus === 'offline' ? (
             <WifiOffIcon width={13} height={13} />
           ) : (
-            <span className={`h-1.5 w-1.5 rounded-full ${syncStatus.isSyncing ? 'bg-sky-500 animate-pulse' : 'bg-emerald-500'}`} />
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                realtimeStatus === 'connecting' || realtimeStatus === 'reconnecting' ? 'bg-sky-500 animate-pulse' : 'bg-emerald-500'
+              }`}
+            />
           )}
           {syncLabel}
         </div>

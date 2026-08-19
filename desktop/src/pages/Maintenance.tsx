@@ -1,67 +1,123 @@
 import { useEffect, useState } from 'react';
-import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
 import { UtilitiesIcon } from '../components/icons';
-import { formatDate } from '../lib/dateFormat';
-import { useDataVersion } from '../lib/dataSync';
+import { formatDate, shiftMonthValue } from '../lib/dateFormat';
+import { cachedGet, isCached, useCachedQuery } from '../lib/queryCache';
+import { formatCurrency } from '../lib/format';
 
 const Maintenance = () => {
-  const [properties, setProperties] = useState<any[]>([]);
+  const { data: propertiesData, loading: propertiesLoading } = useCachedQuery<any[]>('/properties');
+  const properties = propertiesData || [];
   const [propertyId, setPropertyId] = useState('');
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [records, setRecords] = useState<any[]>([]);
-  const dataVersion = useDataVersion();
+  const [recordsTotal, setRecordsTotal] = useState(0);
+  const [recordsLoading, setRecordsLoading] = useState(true);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const isServerMode = Boolean(propertyId);
+
+  const scopeKey = `${propertyId}::${month}`;
+  const [renderedScopeKey, setRenderedScopeKey] = useState(scopeKey);
+  if (scopeKey !== renderedScopeKey) {
+    setRenderedScopeKey(scopeKey);
+    setRecords([]);
+    setRecordsTotal(0);
+    setRecordsLoading(true);
+    setPage(1);
+    setSearch('');
+    setSortKey(null);
+    setSortDir('asc');
+  }
 
   useEffect(() => {
-    const load = async () => {
-      const response = await api.get('/properties');
-      const list = response.data || [];
-      setProperties(list);
-    };
-    load();
-  }, [dataVersion]);
-
-  useEffect(() => {
+    if (propertiesLoading) return;
     const loadRecords = async () => {
       if (propertyId) {
-        const response = await api.get(`/properties/${propertyId}/maintenance`);
-        setRecords(response.data);
+        const params = { month, page, limit: pageSize, search: search || undefined, sortKey: sortKey || undefined, sortDir };
+        if (!isCached(`/properties/${propertyId}/maintenance`, params)) setRecordsLoading(true);
+        try {
+          const result = await cachedGet(`/properties/${propertyId}/maintenance`, params);
+          setRecords(result?.data || []);
+          setRecordsTotal(result?.total || 0);
+        } finally {
+          setRecordsLoading(false);
+        }
         return;
       }
-      if (!properties.length) {
-        setRecords([]);
-        return;
-      }
-      const responses = await Promise.all(
-        properties.map((property) => api.get(`/properties/${property._id}/maintenance`))
-      );
-      setRecords(
-        responses.flatMap((response, index) =>
-          (response.data || []).map((record: any) => ({
+
+      const allCached = properties.every((property) => isCached(`/properties/${property._id}/maintenance`, { month }));
+      if (!allCached) setRecordsLoading(true);
+
+      try {
+        if (!properties.length) {
+          setRecords([]);
+          setRecordsTotal(0);
+          return;
+        }
+        const responses = await Promise.all(
+          properties.map((property) => cachedGet(`/properties/${property._id}/maintenance`, { month }))
+        );
+        const merged = responses.flatMap((data, index) =>
+          (data || []).map((record: any) => ({
             ...record,
             _propertyName: properties[index].name
           }))
-        )
-      );
+        );
+        setRecords(merged);
+        setRecordsTotal(merged.length);
+      } finally {
+        setRecordsLoading(false);
+      }
     };
     loadRecords();
-  }, [propertyId, properties, dataVersion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId, month, properties.length, propertiesLoading, page, pageSize, search, sortKey, sortDir]);
 
   const columns: TableColumn<any>[] = [
     {
       key: 'property',
       label: 'Property',
+      sortable: false,
       accessor: (record) => record._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'
     },
     { key: 'date', label: 'Date', accessor: (record) => new Date(record.date).getTime(), render: (record) => formatDate(record.date) },
     { key: 'category', label: 'Category', accessor: (record) => record.category },
-    { key: 'amount', label: 'Amount', accessor: (record) => record.amount, render: (record) => `₹${record.amount}` },
-    { key: 'paidTo', label: 'Paid To', accessor: (record) => record.paidTo || '-' }
+    { key: 'amount', label: 'Amount', accessor: (record) => record.amount, render: (record) => `₹${formatCurrency(record.amount)}` },
+    { key: 'paidTo', label: 'Paid To', sortable: false, accessor: (record) => record.paidTo || '-' }
   ];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <button
+          type="button"
+          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+          onClick={() => setMonth((prev) => shiftMonthValue(prev, -1))}
+          aria-label="Previous month"
+        >
+          ←
+        </button>
+        <input
+          type="month"
+          className="border border-black/10 rounded-lg px-3 py-2 text-sm"
+          value={month}
+          onChange={(e) => setMonth(e.target.value)}
+        />
+        <button
+          type="button"
+          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+          onClick={() => setMonth((prev) => shiftMonthValue(prev, 1))}
+          aria-label="Next month"
+        >
+          →
+        </button>
         <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
       </div>
 
@@ -73,6 +129,35 @@ const Maintenance = () => {
         emptyIcon={<UtilitiesIcon width={22} height={22} />}
         emptyTitle="No maintenance records found"
         emptyDescription="Expenses logged for this property will appear here."
+        loading={recordsLoading}
+        server={
+          isServerMode
+            ? {
+                page,
+                pageSize,
+                total: recordsTotal,
+                search,
+                onSearchChange: (value) => {
+                  setSearch(value);
+                  setPage(1);
+                },
+                sortKey,
+                sortDir,
+                onSortChange: (key, dir) => {
+                  setSortKey(key);
+                  setSortDir(dir);
+                  setPage(1);
+                },
+                columnFilters: {},
+                onColumnFiltersChange: () => {},
+                onPageChange: setPage,
+                onPageSizeChange: (size) => {
+                  setPageSize(size);
+                  setPage(1);
+                }
+              }
+            : undefined
+        }
       />
     </div>
   );

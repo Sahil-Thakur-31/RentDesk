@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import { CloseIcon } from '../components/icons';
 import { formatDate, formatMonthKey, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
-import { useDataVersion } from '../lib/dataSync';
+import { cachedGet } from '../lib/queryCache';
 import { toast } from '../lib/toast';
+import { formatCurrency } from '../lib/format';
 
 type CalendarEvent = {
   id: string;
@@ -51,7 +51,6 @@ const makeDayGrid = (monthValue: string) => {
 
 const Calendar = () => {
   const navigate = useNavigate();
-  const dataVersion = useDataVersion();
   const [properties, setProperties] = useState<any[]>([]);
   const [portfolioSettings, setPortfolioSettings] = useState({
     rentDueDay: 5,
@@ -68,12 +67,12 @@ const Calendar = () => {
   useEffect(() => {
     const loadProperties = async () => {
       try {
-        const [propertiesRes, portfolioRes] = await Promise.all([
-          api.get('/properties?archived=false'),
-          api.get('/portfolio')
+        const [propertiesData, portfolioData] = await Promise.all([
+          cachedGet('/properties', { archived: false }),
+          cachedGet('/portfolio')
         ]);
-        setProperties(propertiesRes.data || []);
-        const portfolio = portfolioRes.data?.portfolio;
+        setProperties(propertiesData || []);
+        const portfolio = portfolioData?.portfolio;
         if (portfolio) {
           setPortfolioSettings({
             rentDueDay: Number(portfolio.rentDueDay || 5),
@@ -87,7 +86,7 @@ const Calendar = () => {
     };
 
     void loadProperties();
-  }, [dataVersion]);
+  }, []);
 
   useEffect(() => {
     const { start, end, month, year } = getMonthBounds(monthValue);
@@ -111,28 +110,20 @@ const Calendar = () => {
 
         const eventBuckets = await Promise.all(
           activeProperties.map(async (property) => {
-            const [rentRes, utilityRes, maintenanceRes, tenantRes, paymentRes] = await Promise.all([
-              api.get(`/properties/${property._id}/rent-records?month=${month}&year=${year}&status=unpaid,partial`),
-              api.get(`/properties/${property._id}/utility-bills?month=${monthValue}&status=unpaid,partial`),
-              api.get(`/properties/${property._id}/maintenance`),
-              api.get(`/properties/${property._id}/tenants?status=active`),
-              api.get(
-                `/properties/${property._id}/payments?startDate=${start.toISOString()}&endDate=${new Date(
-                  end.getFullYear(),
-                  end.getMonth(),
-                  end.getDate(),
-                  23,
-                  59,
-                  59
-                ).toISOString()}`
-              )
+            const paymentEndDate = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59).toISOString();
+            const [rentData, utilityData, maintenanceData, tenantData, paymentData] = await Promise.all([
+              cachedGet(`/properties/${property._id}/rent-records`, { month, year, status: 'unpaid,partial' }),
+              cachedGet(`/properties/${property._id}/utility-bills`, { month: monthValue, status: 'unpaid,partial' }),
+              cachedGet(`/properties/${property._id}/maintenance`),
+              cachedGet(`/properties/${property._id}/tenants`, { status: 'active' }),
+              cachedGet(`/properties/${property._id}/payments`, { startDate: start.toISOString(), endDate: paymentEndDate })
             ]);
 
             const dueDay = toDateInput(new Date(year, month - 1, portfolioSettings.rentDueDay));
             const utilityDay = toDateInput(new Date(year, month - 1, portfolioSettings.electricityDueDay));
             const maintenanceDay = toDateInput(new Date(year, month - 1, portfolioSettings.maintenanceDueDay));
 
-            const rentEvents: CalendarEvent[] = (rentRes.data || []).map((record: any) => {
+            const rentEvents: CalendarEvent[] = (rentData || []).map((record: any) => {
               const paidAmount = Number(record.paidAmount || 0);
               const remaining = Math.max(0, Number(record.rentAmount || 0) - paidAmount);
               const tenantName = record.tenantId?.fullName || 'Tenant';
@@ -141,7 +132,7 @@ const Calendar = () => {
                 id: `rent-due-${record._id}`,
                 date: dueDay,
                 title: `${tenantName} - ${unitName} rent due`,
-                detail: `${property.name} - Remaining \u20B9${remaining}`,
+                detail: `${property.name} - Remaining \u20B9${formatCurrency(remaining)}`,
                 propertyId: property._id,
                 propertyName: property.name,
                 type: 'due',
@@ -151,11 +142,11 @@ const Calendar = () => {
               };
             });
 
-            const utilityEvents: CalendarEvent[] = (utilityRes.data || []).map((bill: any) => ({
+            const utilityEvents: CalendarEvent[] = (utilityData || []).map((bill: any) => ({
               id: `utility-due-${bill._id}`,
               date: utilityDay,
               title: `${bill.tenantId?.fullName || bill.unitId?.currentTenant?.fullName || 'Tenant'} - ${bill.unitId?.unitNumber || 'Unit'} electricity`,
-              detail: `${property.name} - Pending \u20B9${bill.amount}`,
+              detail: `${property.name} - Pending \u20B9${formatCurrency(bill.amount)}`,
               propertyId: property._id,
               propertyName: property.name,
               type: 'due',
@@ -164,7 +155,7 @@ const Calendar = () => {
                 : `/properties/${property._id}`
             }));
 
-            const maintenanceEvents: CalendarEvent[] = (maintenanceRes.data || [])
+            const maintenanceEvents: CalendarEvent[] = (maintenanceData || [])
               .filter((record: any) => {
                 const recordDate = new Date(record.date);
                 return recordDate >= start && recordDate <= new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59);
@@ -173,7 +164,7 @@ const Calendar = () => {
                 id: `maintenance-expense-${record._id}`,
                 date: toDateInput(new Date(record.date)),
                 title: record.category || 'Maintenance expense',
-                detail: `${property.name} - \u20B9${record.amount}${record.paidTo ? ` - ${record.paidTo}` : ''}`,
+                detail: `${property.name} - \u20B9${formatCurrency(record.amount)}${record.paidTo ? ` - ${record.paidTo}` : ''}`,
                 propertyId: property._id,
                 propertyName: property.name,
                 type: 'expense',
@@ -181,26 +172,26 @@ const Calendar = () => {
               }));
 
             const collectedMaintenanceTenantIds = new Set(
-              (paymentRes.data || [])
+              (paymentData || [])
                 .filter((payment: any) => payment.type === 'maintenance' && /maintenance collected/i.test(String(payment.notes || '')))
                 .map((payment: any) => getId(payment.tenantId))
             );
 
-            const maintenanceDueEvents: CalendarEvent[] = (tenantRes.data || [])
+            const maintenanceDueEvents: CalendarEvent[] = (tenantData || [])
               .filter((tenant: any) => !collectedMaintenanceTenantIds.has(getId(tenant._id)))
               .filter(() => Number(property.maintenanceCharge || 0) > 0)
               .map((tenant: any) => ({
                 id: `maintenance-due-${tenant._id}`,
                 date: maintenanceDay,
                 title: `${tenant.fullName || 'Tenant'} - ${tenant.unitId?.unitNumber || 'Unit'} maintenance due`,
-                detail: `${property.name} - Remaining \u20B9${property.maintenanceCharge || 0}`,
+                detail: `${property.name} - Remaining \u20B9${formatCurrency(property.maintenanceCharge || 0)}`,
                 propertyId: property._id,
                 propertyName: property.name,
                 type: 'due',
                 viewPath: tenant._id ? `/properties/${property._id}/tenants/${tenant._id}` : `/properties/${property._id}`
               }));
 
-            const paymentEvents: CalendarEvent[] = (paymentRes.data || [])
+            const paymentEvents: CalendarEvent[] = (paymentData || [])
               .filter((payment: any) => !(payment.type === 'maintenance' && payment.sourceType === 'maintenance'))
               .map((payment: any) => {
                 const type =
@@ -223,7 +214,7 @@ const Calendar = () => {
                   id: `payment-${payment._id}`,
                   date: toDateInput(new Date(payment.date)),
                   title: labelMap[payment.type] || 'Payment',
-                  detail: `${property.name} - \u20B9${payment.amount}${payment.notes ? ` - ${payment.notes}` : ''}`,
+                  detail: `${property.name} - \u20B9${formatCurrency(payment.amount)}${payment.notes ? ` - ${payment.notes}` : ''}`,
                   propertyId: property._id,
                   propertyName: property.name,
                   type,
@@ -250,7 +241,7 @@ const Calendar = () => {
     };
 
     void loadEvents();
-  }, [monthValue, propertyId, properties, dataVersion, portfolioSettings]);
+  }, [monthValue, propertyId, properties, portfolioSettings]);
 
   const eventsByDate = useMemo(() => {
     return events.reduce<Record<string, CalendarEvent[]>>((acc, event) => {

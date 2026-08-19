@@ -1,70 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
 import PropertyPicker from '../components/PropertyPicker';
 import { formatDate, formatMonthKey, formatMonthYear, getCurrentDateValue, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
-import { useDataVersion } from '../lib/dataSync';
-import { appStorage } from '../lib/appStorage';
 import { useI18n } from '../lib/i18n';
-import { getCachedResponse } from '../lib/offlineSync';
+import { cachedGet, invalidateByTag, isCached, useCachedQuery } from '../lib/queryCache';
 import { BuildingIcon, CashIcon, CloseIcon, ShieldIcon, TransactionsIcon, UnitsIcon, UtilitiesIcon, WrenchIcon } from '../components/icons';
 import { toast } from '../lib/toast';
-
-const dashboardSessionCache = {
-  token: '',
-  properties: [] as any[],
-  propertiesLoaded: false,
-  bundleCache: new Map<string, any>(),
-  dataVersion: -1
-};
+import { SkeletonStatCards, SkeletonDashboardSummary } from '../components/Skeleton';
+import { formatCurrency } from '../lib/format';
 
 const Dashboard = () => {
   const { t } = useI18n();
-  const MIN_LOADING_MS = 1000;
-  const LOADING_MESSAGES = [
-    'Loading properties...',
-    'Loading units...',
-    'Loading tenants...',
-    'Loading transactions...',
-    'Loading remaining metadata...'
-  ];
   const getId = (value: any) => String(value?._id || value || '');
   const getMonthKey = (targetYear: number, targetMonth: number) =>
     `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
-  const getScopeKey = (scopePropertyId: string, scopeMonth: string) =>
-    `${scopePropertyId || 'all'}::${scopeMonth}`;
-  const getMonthStamp = (value: string) => {
-    const [yy, mm] = value.split('-').map(Number);
-    return yy * 12 + (mm - 1);
-  };
-  const compareMonthKeys = (left: string, right: string) => getMonthStamp(left) - getMonthStamp(right);
-  const getMonthRange = (startMonth: string, endMonth: string) => {
-    const months: string[] = [];
-    let cursor = startMonth;
-    while (compareMonthKeys(cursor, endMonth) <= 0) {
-      months.push(cursor);
-      cursor = shiftMonthValue(cursor, 1);
-    }
-    return months;
-  };
-  const getLoadingMessageByProgress = (progress: number) => {
-    const stageIndex = Math.min(
-      LOADING_MESSAGES.length - 1,
-      Math.floor((Math.max(progress, 1) / 100) * LOADING_MESSAGES.length)
-    );
-    return LOADING_MESSAGES[stageIndex];
-  };
-  const localFirstGet = async (url: string, params?: Record<string, any>) => {
-    const cached = getCachedResponse({ url, method: 'get', params });
-    if (cached !== undefined) {
-      return { data: cached };
-    }
-    return api.get(url, params ? { params } : undefined);
-  };
-  const hasCachedGet = (url: string, params?: Record<string, any>) =>
-    getCachedResponse({ url, method: 'get', params }) !== undefined;
-  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const wasTenantPresentInMonth = (tenant: any, startDate: Date, endDate: Date) => {
     const createdAt = tenant?.createdAt ? new Date(tenant.createdAt) : null;
     const movedOutDate = tenant?.movedOutDate ? new Date(tenant.movedOutDate) : null;
@@ -111,15 +61,10 @@ const Dashboard = () => {
         status: 'unpaid'
       }));
   };
-  const dataVersion = useDataVersion();
-  const bundleCacheRef = useRef<Map<string, any>>(dashboardSessionCache.bundleCache);
-  const loadingSessionRef = useRef(0);
+  const { data: propertiesData, loading: propertiesLoading } = useCachedQuery<any[]>('/properties');
+  const properties = propertiesData || [];
   const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadingProgress, setLoadingProgress] = useState(1);
-  const [loadingMessage, setLoadingMessage] = useState(LOADING_MESSAGES[0]);
-  const [properties, setProperties] = useState<any[]>(dashboardSessionCache.properties);
-  const [propertiesLoaded, setPropertiesLoaded] = useState(dashboardSessionCache.propertiesLoaded);
+  const [loading, setLoading] = useState(true);
   const [propertyId, setPropertyId] = useState('');
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
@@ -145,7 +90,8 @@ const Dashboard = () => {
     date: getCurrentDateValue(),
     notes: '',
     unitId: '',
-    tenantId: ''
+    tenantId: '',
+    direction: 'in' as 'in' | 'out'
   });
   const [collectModal, setCollectModal] = useState<null | {
     type: 'rent' | 'deposit';
@@ -159,20 +105,7 @@ const Dashboard = () => {
   const [collectAmount, setCollectAmount] = useState('');
   const [collectSaving, setCollectSaving] = useState(false);
 
-  useEffect(() => {
-    const currentToken = appStorage.getItem('rentdesk_token') || '';
-    if (dashboardSessionCache.token !== currentToken || dashboardSessionCache.dataVersion !== dataVersion) {
-      dashboardSessionCache.token = currentToken;
-      dashboardSessionCache.dataVersion = dataVersion;
-      dashboardSessionCache.properties = [];
-      dashboardSessionCache.propertiesLoaded = false;
-      dashboardSessionCache.bundleCache.clear();
-      bundleCacheRef.current = dashboardSessionCache.bundleCache;
-      setProperties([]);
-      setPropertiesLoaded(false);
-      setData(null);
-    }
-  }, [dataVersion]);
+  const get = async (url: string, params?: Record<string, any>) => ({ data: await cachedGet(url, params) });
 
   const buildMetaForScope = async (scopePropertyId: string, scopeMonth: string, scopeProperties: any[]) => {
     const [scopeYearRaw, scopeMonthRaw] = scopeMonth.split('-').map(Number);
@@ -187,34 +120,34 @@ const Dashboard = () => {
     if (scopePropertyId) {
       const [unitsRes, tenantsRes, rentRes, rentPaidRes, billRes, billPaidRes, maintenancePaidRes, allPaymentsRes] =
         await Promise.all([
-          localFirstGet(`/properties/${scopePropertyId}/units`, { archived: false }),
-          localFirstGet(`/properties/${scopePropertyId}/tenants`),
-          localFirstGet(`/properties/${scopePropertyId}/rent-records`, {
+          get(`/properties/${scopePropertyId}/units`, { archived: false }),
+          get(`/properties/${scopePropertyId}/tenants`),
+          get(`/properties/${scopePropertyId}/rent-records`, {
             month: scopeMonthNum,
             year: scopeYear,
             status: 'unpaid,partial'
           }),
-          localFirstGet(`/properties/${scopePropertyId}/rent-records`, {
+          get(`/properties/${scopePropertyId}/rent-records`, {
             month: scopeMonthNum,
             year: scopeYear,
             status: 'paid'
           }),
-          localFirstGet(`/properties/${scopePropertyId}/utility-bills`, {
+          get(`/properties/${scopePropertyId}/utility-bills`, {
             billType: 'electricity',
             month: monthKey,
             status: 'unpaid,partial'
           }),
-          localFirstGet(`/properties/${scopePropertyId}/utility-bills`, {
+          get(`/properties/${scopePropertyId}/utility-bills`, {
             billType: 'electricity',
             month: monthKey,
             status: 'paid'
           }),
-          localFirstGet(`/properties/${scopePropertyId}/payments`, {
+          get(`/properties/${scopePropertyId}/payments`, {
             type: 'maintenance',
             startDate,
             endDate
           }),
-          localFirstGet(`/properties/${scopePropertyId}/payments`)
+          get(`/properties/${scopePropertyId}/payments`)
         ]);
 
       const allPayments = allPaymentsRes.data || [];
@@ -331,7 +264,7 @@ const Dashboard = () => {
 
     const rentBatches = await Promise.all(
       scopeProperties.map((prop) =>
-        localFirstGet(`/properties/${prop._id}/rent-records`, {
+        get(`/properties/${prop._id}/rent-records`, {
           month: scopeMonthNum,
           year: scopeYear,
           status: 'unpaid,partial'
@@ -340,7 +273,7 @@ const Dashboard = () => {
     );
     const rentPaidBatches = await Promise.all(
       scopeProperties.map((prop) =>
-        localFirstGet(`/properties/${prop._id}/rent-records`, {
+        get(`/properties/${prop._id}/rent-records`, {
           month: scopeMonthNum,
           year: scopeYear,
           status: 'paid'
@@ -349,7 +282,7 @@ const Dashboard = () => {
     );
     const billBatches = await Promise.all(
       scopeProperties.map((prop) =>
-        localFirstGet(`/properties/${prop._id}/utility-bills`, {
+        get(`/properties/${prop._id}/utility-bills`, {
           billType: 'electricity',
           month: monthKey,
           status: 'unpaid,partial'
@@ -358,7 +291,7 @@ const Dashboard = () => {
     );
     const billPaidBatches = await Promise.all(
       scopeProperties.map((prop) =>
-        localFirstGet(`/properties/${prop._id}/utility-bills`, {
+        get(`/properties/${prop._id}/utility-bills`, {
           billType: 'electricity',
           month: monthKey,
           status: 'paid'
@@ -366,11 +299,11 @@ const Dashboard = () => {
       )
     );
     const tenantBatches = await Promise.all(
-      scopeProperties.map((prop) => localFirstGet(`/properties/${prop._id}/tenants`))
+      scopeProperties.map((prop) => get(`/properties/${prop._id}/tenants`))
     );
     const maintenancePaidBatches = await Promise.all(
       scopeProperties.map((prop) =>
-        localFirstGet(`/properties/${prop._id}/payments`, {
+        get(`/properties/${prop._id}/payments`, {
           type: 'maintenance',
           startDate,
           endDate
@@ -378,7 +311,7 @@ const Dashboard = () => {
       )
     );
     const allPaymentBatches = await Promise.all(
-      scopeProperties.map((prop) => localFirstGet(`/properties/${prop._id}/payments`))
+      scopeProperties.map((prop) => get(`/properties/${prop._id}/payments`))
     );
 
     const combinedTenants = tenantBatches.flatMap((response) => response.data || []);
@@ -522,264 +455,20 @@ const Dashboard = () => {
   };
 
   const fetchScopeBundle = async (scopePropertyId: string, scopeMonth: string, scopeProperties: any[]) => {
-    const cacheKey = getScopeKey(scopePropertyId, scopeMonth);
-    const cached = bundleCacheRef.current.get(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
     const [scopeYearRaw, scopeMonthRaw] = scopeMonth.split('-').map(Number);
     const scopeYear = Number.isNaN(scopeYearRaw) ? year : scopeYearRaw;
     const scopeMonthNum = Number.isNaN(scopeMonthRaw) ? month : scopeMonthRaw;
-    const localDashboard = isScopeBundleLocallyAvailable(scopePropertyId, scopeMonth, scopeProperties)
-      ? buildDashboardFromLocal(scopePropertyId, scopeMonth, scopeProperties)
-      : null;
-    const [dashboardResponse, meta] = await Promise.all([
-      localDashboard
-        ? Promise.resolve({ data: localDashboard })
-        : api.get('/dashboard', {
-            params: {
-              month: scopeMonthNum,
-              year: scopeYear,
-              propertyId: scopePropertyId || undefined
-            }
-          }),
+
+    const [dashboard, meta] = await Promise.all([
+      cachedGet('/dashboard', {
+        month: scopeMonthNum,
+        year: scopeYear,
+        propertyId: scopePropertyId || undefined
+      }),
       buildMetaForScope(scopePropertyId, scopeMonth, scopeProperties)
     ]);
 
-    const bundle = {
-      dashboard: dashboardResponse.data,
-      meta
-    };
-    bundleCacheRef.current.set(cacheKey, bundle);
-    return bundle;
-  };
-
-  const buildDashboardFromLocal = (scopePropertyId: string, scopeMonth: string, scopeProperties: any[]) => {
-    const [scopeYearRaw, scopeMonthRaw] = scopeMonth.split('-').map(Number);
-    const scopeYear = Number.isNaN(scopeYearRaw) ? year : scopeYearRaw;
-    const scopeMonthNum = Number.isNaN(scopeMonthRaw) ? month : scopeMonthRaw;
-    const monthKey = getMonthKey(scopeYear, scopeMonthNum);
-    const monthStart = new Date(scopeYear, scopeMonthNum - 1, 1);
-    const monthEnd = new Date(scopeYear, scopeMonthNum, 0, 23, 59, 59, 999);
-    const scopedPropertyList = (scopePropertyId
-      ? scopeProperties.filter((property) => String(property._id) === String(scopePropertyId))
-      : scopeProperties
-    ).filter((property) => !property?.isArchived);
-
-    if (!scopedPropertyList.length) {
-      return {
-        totals: {
-          totalProperties: 0,
-          totalUnits: 0,
-          occupiedUnits: 0,
-          vacantUnits: 0,
-          monthlyExpectedRent: 0,
-          collectedRent: 0,
-          pendingRent: 0,
-          monthlyMaintenanceExpected: 0,
-          monthlyMaintenanceCollected: 0,
-          monthlyMaintenancePending: 0,
-          monthlyMaintenance: 0,
-          monthlyElectricity: { total: 0, collected: 0, unpaid: 0 },
-          depositRequired: 0,
-          depositCollected: 0,
-          depositPending: 0,
-          otherCashIntake: 0
-        },
-        charts: { rentCollection: [], maintenanceExpenses: [] },
-        lists: { pendingRentTenants: [] }
-      };
-    }
-
-    const scopedPropertyIds = new Set(scopedPropertyList.map((property) => String(property._id)));
-    const allUnits = scopedPropertyList.flatMap(
-      (property) => (getCachedResponse({ url: `/properties/${property._id}/units`, method: 'get', params: { archived: false } }) as any[]) || []
-    );
-    const allTenants = scopedPropertyList.flatMap(
-      (property) => (getCachedResponse({ url: `/properties/${property._id}/tenants`, method: 'get' }) as any[]) || []
-    );
-    const allRentRecords = scopedPropertyList.flatMap(
-      (property) => (getCachedResponse({ url: `/properties/${property._id}/rent-records`, method: 'get' }) as any[]) || []
-    );
-    const allUtilityBills = scopedPropertyList.flatMap(
-      (property) => (getCachedResponse({ url: `/properties/${property._id}/utility-bills`, method: 'get' }) as any[]) || []
-    );
-    const allMaintenanceExpenses = scopedPropertyList.flatMap(
-      (property) => (getCachedResponse({ url: `/properties/${property._id}/maintenance`, method: 'get' }) as any[]) || []
-    );
-    const allPayments = scopedPropertyList.flatMap(
-      (property) => (getCachedResponse({ url: `/properties/${property._id}/payments`, method: 'get' }) as any[]) || []
-    );
-
-    const totalUnits = allUnits.filter((unit: any) => !unit?.isArchived).length;
-    const occupiedUnits = allUnits.filter((unit: any) => !unit?.isArchived && unit?.status === 'occupied').length;
-    const vacantUnits = allUnits.filter((unit: any) => !unit?.isArchived && unit?.status === 'vacant').length;
-    const expectedRent = allUnits
-      .filter((unit: any) => !unit?.isArchived && unit?.status === 'occupied')
-      .reduce((sum: number, unit: any) => sum + Number(unit?.monthlyRent || 0), 0);
-
-    const monthRentRecords = allRentRecords.filter(
-      (record: any) => Number(record?.month) === scopeMonthNum && Number(record?.year) === scopeYear
-    );
-    const collectedRent = monthRentRecords.reduce((sum: number, record: any) => {
-      if (record?.status === 'paid') return sum + Number(record?.rentAmount || 0);
-      if (record?.status === 'partial') return sum + Number(record?.paidAmount || 0);
-      return sum;
-    }, 0);
-
-    const occupiedMap = new Map<string, number>();
-    allUnits
-      .filter((unit: any) => !unit?.isArchived && unit?.status === 'occupied')
-      .forEach((unit: any) => {
-        const key = String(unit?.propertyId?._id || unit?.propertyId || '');
-        occupiedMap.set(key, (occupiedMap.get(key) || 0) + 1);
-      });
-
-    const maintenanceExpected = scopedPropertyList.reduce((sum: number, property: any) => {
-      const occupiedCount = occupiedMap.get(String(property._id)) || 0;
-      return sum + occupiedCount * Number(property?.maintenanceCharge || 0);
-    }, 0);
-
-    const maintenanceCollected = allPayments
-      .filter((payment: any) => {
-        const paymentDate = new Date(payment?.date);
-        return (
-          payment?.type === 'maintenance' &&
-          String(payment?.notes || '').toLowerCase().includes('maintenance collected') &&
-          paymentDate >= monthStart &&
-          paymentDate <= monthEnd
-        );
-      })
-      .reduce((sum: number, payment: any) => sum + Number(payment?.amount || 0), 0);
-
-    const maintenanceSpent = allMaintenanceExpenses
-      .filter((expense: any) => {
-        const expenseDate = new Date(expense?.date);
-        return expenseDate >= monthStart && expenseDate <= monthEnd;
-      })
-      .reduce((sum: number, expense: any) => sum + Number(expense?.amount || 0), 0);
-
-    const monthElectricityBills = allUtilityBills.filter(
-      (bill: any) => bill?.billType === 'electricity' && String(bill?.month) === monthKey
-    );
-    const electricityTotal = monthElectricityBills.reduce((sum: number, bill: any) => sum + Number(bill?.amount || 0), 0);
-    const electricityUnpaid = monthElectricityBills
-      .filter((bill: any) => bill?.status === 'unpaid')
-      .reduce((sum: number, bill: any) => sum + Number(bill?.amount || 0), 0);
-    const electricityCollected = Math.max(0, electricityTotal - electricityUnpaid);
-
-    const activeTenants = allTenants.filter(
-      (tenant: any) =>
-        tenant?.isActive &&
-        scopedPropertyIds.has(String(tenant?.propertyId?._id || tenant?.propertyId || ''))
-    );
-    const depositRequired = activeTenants.reduce((sum: number, tenant: any) => sum + Number(tenant?.depositAmount || 0), 0);
-    const depositHeldByTenant = new Map<string, number>();
-    allPayments
-      .filter((payment: any) => ['deposit', 'refund'].includes(String(payment?.type || '')) && payment?.tenantId)
-      .forEach((payment: any) => {
-        const tenantKey = String(payment?.tenantId?._id || payment?.tenantId || '');
-        const currentHeld = depositHeldByTenant.get(tenantKey) || 0;
-        const nextHeld =
-          payment?.type === 'deposit'
-            ? currentHeld + Number(payment?.amount || 0)
-            : currentHeld - Number(payment?.amount || 0);
-        depositHeldByTenant.set(tenantKey, nextHeld);
-      });
-    const depositCollected = activeTenants.reduce(
-      (sum: number, tenant: any) => sum + Math.max(0, depositHeldByTenant.get(String(tenant?._id)) || 0),
-      0
-    );
-
-    const otherCashIntake = allPayments
-      .filter((payment: any) => {
-        const paymentDate = new Date(payment?.date);
-        return payment?.type === 'other' && paymentDate >= monthStart && paymentDate <= monthEnd;
-      })
-      .reduce((sum: number, payment: any) => sum + Number(payment?.amount || 0), 0);
-
-    const tenantNameById = new Map(
-      allTenants.map((tenant: any) => [String(tenant?._id), tenant?.fullName || 'Tenant'])
-    );
-    const unitNumberById = new Map(
-      allUnits.map((unit: any) => [String(unit?._id), unit?.unitNumber || '-'])
-    );
-    const pendingRentTenants = monthRentRecords
-      .filter((record: any) => ['unpaid', 'partial'].includes(String(record?.status || '')))
-      .slice(0, 10)
-      .map((record: any) => ({
-        ...record,
-        tenantId:
-          typeof record?.tenantId === 'object'
-            ? record.tenantId
-            : {
-                _id: record?.tenantId,
-                fullName: tenantNameById.get(String(record?.tenantId)) || 'Tenant'
-              },
-        unitId:
-          typeof record?.unitId === 'object'
-            ? record.unitId
-            : {
-                _id: record?.unitId,
-                unitNumber: unitNumberById.get(String(record?.unitId)) || '-'
-              }
-      }));
-
-    return {
-      totals: {
-        totalProperties: scopedPropertyList.length,
-        totalUnits,
-        occupiedUnits,
-        vacantUnits,
-        monthlyExpectedRent: expectedRent,
-        collectedRent,
-        pendingRent: Math.max(0, expectedRent - collectedRent),
-        monthlyMaintenanceExpected: maintenanceExpected,
-        monthlyMaintenanceCollected: maintenanceCollected,
-        monthlyMaintenancePending: Math.max(0, maintenanceExpected - maintenanceCollected),
-        monthlyMaintenance: maintenanceSpent,
-        monthlyElectricity: {
-          total: electricityTotal,
-          collected: electricityCollected,
-          unpaid: electricityUnpaid
-        },
-        depositRequired,
-        depositCollected,
-        depositPending: Math.max(0, depositRequired - depositCollected),
-        otherCashIntake
-      },
-      charts: { rentCollection: [], maintenanceExpenses: [] },
-      lists: { pendingRentTenants }
-    };
-  };
-
-  const isScopeBundleLocallyAvailable = (scopePropertyId: string, scopeMonth: string, scopeProperties: any[]) => {
-    const [scopeYearRaw, scopeMonthRaw] = scopeMonth.split('-').map(Number);
-    const scopeYear = Number.isNaN(scopeYearRaw) ? year : scopeYearRaw;
-    const scopeMonthNum = Number.isNaN(scopeMonthRaw) ? month : scopeMonthRaw;
-
-    const scopedProperties = scopePropertyId
-      ? scopeProperties.filter((property) => String(property._id) === String(scopePropertyId))
-      : scopeProperties;
-
-    if (!scopedProperties.length) {
-      return true;
-    }
-
-    return scopedProperties.every((property) => {
-      const propertyKey = String(property._id);
-      const commonChecks = [
-        hasCachedGet(`/properties/${propertyKey}/tenants`),
-        hasCachedGet(`/properties/${propertyKey}/rent-records`),
-        hasCachedGet(`/properties/${propertyKey}/utility-bills`),
-        hasCachedGet(`/properties/${propertyKey}/payments`),
-        hasCachedGet(`/properties/${propertyKey}/maintenance`),
-        hasCachedGet(`/properties/${propertyKey}/units`, { archived: false })
-      ];
-
-      return commonChecks.every(Boolean);
-    });
+    return { dashboard, meta };
   };
 
   const applyMetaState = (meta: any) => {
@@ -795,27 +484,58 @@ const Dashboard = () => {
     setPaidDeposits(meta.paidDeposits || []);
   };
 
-  useEffect(() => {
-    if (dashboardSessionCache.propertiesLoaded) {
-      setProperties(dashboardSessionCache.properties);
-      setPropertiesLoaded(true);
-      return;
+  const emptyMeta = {
+    units: [],
+    tenants: [],
+    pendingRentRecords: [],
+    paidRentRecords: [],
+    pendingElectricity: [],
+    paidElectricity: [],
+    pendingMaintenance: [],
+    paidMaintenance: [],
+    pendingDeposits: [],
+    paidDeposits: []
+  };
+
+  const reloadMainScope = async (options?: { force?: boolean }) => {
+    const scopeMonth = getMonthKey(year, month);
+    const scopePropertyId = propertyId || '';
+    if (options?.force) {
+      const targets = scopePropertyId ? [scopePropertyId] : properties.map((property) => property._id);
+      targets.forEach((id: string) => {
+        invalidateByTag('dashboard', id);
+        invalidateByTag('rentRecord', id);
+        invalidateByTag('utilityBill', id);
+        invalidateByTag('maintenance', id);
+        invalidateByTag('payment', id);
+        invalidateByTag('unit', id);
+        invalidateByTag('tenant', id);
+      });
+      invalidateByTag('dashboard');
     }
 
-    const loadProperties = async () => {
-      try {
-        const response = await api.get('/properties');
-        const list = response.data || [];
-        dashboardSessionCache.properties = list;
-        dashboardSessionCache.propertiesLoaded = true;
-        setProperties(list);
-      } finally {
-        setPropertiesLoaded(true);
-      }
-    };
-    setPropertiesLoaded(false);
-    loadProperties();
-  }, [dataVersion]);
+    const dashboardCached = isCached('/dashboard', { month, year, propertyId: scopePropertyId || undefined });
+    if (!dashboardCached) setLoading(true);
+    try {
+      const bundle = await fetchScopeBundle(scopePropertyId, scopeMonth, properties);
+      setData(bundle.dashboard);
+      applyMetaState(bundle.meta);
+    } catch {
+      setData(null);
+      applyMetaState(emptyMeta);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reloadModalScope = async () => {
+    try {
+      const bundle = await fetchScopeBundle(paymentPropertyId || '', modalMonth, properties);
+      applyMetaState(bundle.meta);
+    } catch {
+      applyMetaState(emptyMeta);
+    }
+  };
 
   useEffect(() => {
     if (!showPaymentModal) {
@@ -831,125 +551,25 @@ const Dashboard = () => {
     setPaymentTab('rent');
   }, [showPaymentModal, propertyId]);
 
-  useEffect(() => {
-    if (!propertiesLoaded || showPaymentModal) return;
-
-    const scopeMonth = getMonthKey(year, month);
-    const scopePropertyId = propertyId || '';
-    const scopedProperties = properties;
-    let cancelled = false;
-    const sessionId = Date.now();
-    const finishLoading = async (startedAt: number) => {
-      const remaining = Math.max(0, MIN_LOADING_MS - (Date.now() - startedAt));
-      if (remaining > 0) {
-        await wait(remaining);
-      }
-      if (cancelled || loadingSessionRef.current !== sessionId) return;
-      setLoadingProgress(100);
-      await wait(140);
-      if (cancelled || loadingSessionRef.current !== sessionId) return;
-      setLoading(false);
-    };
-
-    const applyEmptyState = () => {
-      setData(null);
-      applyMetaState({
-        units: [],
-        tenants: [],
-        pendingRentRecords: [],
-        paidRentRecords: [],
-        pendingElectricity: [],
-        paidElectricity: [],
-        pendingMaintenance: [],
-        paidMaintenance: [],
-        pendingDeposits: [],
-        paidDeposits: []
-      });
-    };
-
-    const loadDashboardScope = async () => {
-      try {
-        const currentCacheKey = getScopeKey(scopePropertyId, scopeMonth);
-        const currentMonthInMemory = bundleCacheRef.current.has(currentCacheKey);
-        const currentMonthCached =
-          currentMonthInMemory ||
-          isScopeBundleLocallyAvailable(scopePropertyId, scopeMonth, scopedProperties);
-        const shouldShowLoader = !currentMonthCached;
-        const startedAt = Date.now();
-
-        if (shouldShowLoader) {
-          loadingSessionRef.current = sessionId;
-          setLoadingMessage('Loading properties...');
-          setLoadingProgress(12);
-          setLoading(true);
-        }
-
-        const currentBundle = currentMonthInMemory
-          ? bundleCacheRef.current.get(currentCacheKey)
-          : await fetchScopeBundle(scopePropertyId, scopeMonth, scopedProperties);
-        if (cancelled) return;
-        setData(currentBundle.dashboard);
-        applyMetaState(currentBundle.meta);
-
-        if (!shouldShowLoader) {
-          setLoading(false);
-          setLoadingProgress(100);
-          return;
-        }
-
-        setLoadingProgress(68);
-        setLoadingMessage('Loading transactions...');
-        await wait(220);
-        if (cancelled || loadingSessionRef.current !== sessionId) return;
-        setLoadingProgress(88);
-        setLoadingMessage('Loading remaining metadata...');
-        await finishLoading(startedAt);
-      } catch {
-        if (cancelled) return;
-        setLoading(false);
-        applyEmptyState();
-      }
-    };
-
-    loadDashboardScope();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [propertyId, month, year, propertiesLoaded, properties, showPaymentModal, dataVersion]);
+  const mainScopeKey = `${propertyId}::${month}-${year}`;
+  const [renderedMainScopeKey, setRenderedMainScopeKey] = useState(mainScopeKey);
+  if (mainScopeKey !== renderedMainScopeKey) {
+    setRenderedMainScopeKey(mainScopeKey);
+    setData(null);
+    setLoading(true);
+  }
 
   useEffect(() => {
-    if (!propertiesLoaded || !showPaymentModal) return;
-    let cancelled = false;
+    if (propertiesLoading || showPaymentModal) return;
+    void reloadMainScope();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId, month, year, propertiesLoading, properties.length, showPaymentModal]);
 
-    const loadModalScope = async () => {
-      try {
-        const bundle = await fetchScopeBundle(paymentPropertyId || '', modalMonth, properties);
-        if (cancelled) return;
-        applyMetaState(bundle.meta);
-      } catch {
-        if (cancelled) return;
-        applyMetaState({
-          units: [],
-          tenants: [],
-          pendingRentRecords: [],
-          paidRentRecords: [],
-          pendingElectricity: [],
-          paidElectricity: [],
-          pendingMaintenance: [],
-          paidMaintenance: [],
-          pendingDeposits: [],
-          paidDeposits: []
-        });
-      }
-    };
-
-    loadModalScope();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [showPaymentModal, paymentPropertyId, modalMonth, propertiesLoaded, properties, dataVersion]);
+  useEffect(() => {
+    if (propertiesLoading || !showPaymentModal) return;
+    void reloadModalScope();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPaymentModal, paymentPropertyId, modalMonth, propertiesLoading, properties.length]);
 
   const totals = data?.totals || {};
   const collectedRent = totals.collectedRent || 0;
@@ -966,6 +586,7 @@ const Dashboard = () => {
   const depositCollected = totals.depositCollected || 0;
   const depositPending = totals.depositPending || 0;
   const otherCashIntake = totals.otherCashIntake || 0;
+  const otherCashSpent = totals.otherCashSpent || 0;
   const occupancyRate = totals.totalUnits
     ? Math.round((totals.occupiedUnits / totals.totalUnits) * 100)
     : 0;
@@ -1177,6 +798,12 @@ const Dashboard = () => {
         ]);
       }
 
+      invalidateByTag('rentRecord', collectModal.propertyId);
+      invalidateByTag('payment', collectModal.propertyId);
+      invalidateByTag('dashboard', collectModal.propertyId);
+      invalidateByTag('dashboard');
+      void reloadMainScope();
+
       closeCollectModal(true);
       toast.success(collectModal.type === 'rent' ? 'Rent collected.' : 'Deposit collected.');
     } catch (error: any) {
@@ -1191,38 +818,6 @@ const Dashboard = () => {
 
   return (
     <div className="relative space-y-6">
-      {loading && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/18 backdrop-blur-md p-6">
-          <div className="w-full max-w-xl rounded-[2rem] border border-white/70 bg-white/88 p-6 shadow-[0_40px_90px_rgba(15,23,42,0.18)]">
-            <div className="flex items-center gap-5">
-              <div className="min-w-[84px] text-left">
-                <div className="text-4xl font-semibold text-[var(--text)]">{loadingProgress}%</div>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--muted)]">{t('Portfolio')}</div>
-                <div className="mt-2 truncate text-lg font-medium text-[var(--text)]">{loadingMessage}</div>
-              </div>
-            </div>
-            <div className="mt-5 rounded-full bg-slate-200/80 p-1 shadow-inner">
-              <div className="relative h-4 overflow-hidden rounded-full bg-white/60">
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-[linear-gradient(90deg,#0f766e_0%,#14b8a6_30%,#38bdf8_62%,#8b5cf6_100%)] transition-[width] duration-300 ease-out"
-                  style={{ width: `${Math.max(1, loadingProgress)}%` }}
-                />
-                <div
-                  className="absolute inset-y-0 w-24 -translate-x-full bg-white/35 blur-md"
-                  style={{
-                    left: `${Math.max(12, loadingProgress)}%`,
-                    transition: 'left 300ms ease-out'
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
@@ -1275,46 +870,53 @@ const Dashboard = () => {
         </div>
       </div>
 
+      {loading && !data ? (
+        <div className="space-y-6">
+          <SkeletonStatCards />
+          <SkeletonDashboardSummary />
+        </div>
+      ) : (
+      <>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard
           label="Rent"
-          value={`${'\u20B9'}${collectedRent} / ${'\u20B9'}${expectedRent}`}
-          subLabel={`${'\u20B9'}${pendingRent} pending`}
+          value={`${'\u20B9'}${formatCurrency(collectedRent)} / ${'\u20B9'}${formatCurrency(expectedRent)}`}
+          subLabel={`${'\u20B9'}${formatCurrency(pendingRent)} pending`}
           tone={pendingRent > 0 ? 'warning' : 'success'}
           icon={<TransactionsIcon width={18} height={18} />}
         />
         <StatCard
           label="Electricity"
-          value={`${'\u20B9'}${electricityCollected} / ${'\u20B9'}${electricityTotal}`}
-          subLabel={`${'\u20B9'}${electricityUnpaid} unpaid`}
+          value={`${'\u20B9'}${formatCurrency(electricityCollected)} / ${'\u20B9'}${formatCurrency(electricityTotal)}`}
+          subLabel={`${'\u20B9'}${formatCurrency(electricityUnpaid)} unpaid`}
           tone={electricityUnpaid > 0 ? 'warning' : 'success'}
           icon={<UtilitiesIcon width={18} height={18} />}
         />
         <StatCard
           label="Maintenance"
-          value={`${'\u20B9'}${maintenanceCollected} / ${'\u20B9'}${maintenanceExpected}`}
-          subLabel={`${'\u20B9'}${maintenancePending} pending`}
+          value={`${'\u20B9'}${formatCurrency(maintenanceCollected)} / ${'\u20B9'}${formatCurrency(maintenanceExpected)}`}
+          subLabel={`${'\u20B9'}${formatCurrency(maintenancePending)} pending`}
           tone={maintenancePending > 0 ? 'warning' : 'success'}
           icon={<WrenchIcon width={18} height={18} />}
         />
         <StatCard
           label="Maintenance Spent"
-          value={`${'\u20B9'}${maintenanceSpent}`}
+          value={`${'\u20B9'}${formatCurrency(maintenanceSpent)}`}
           subLabel="Property expenses"
           tone="default"
           icon={<WrenchIcon width={18} height={18} />}
         />
         <StatCard
           label="Deposit"
-          value={`${'\u20B9'}${depositCollected} / ${'\u20B9'}${depositRequired}`}
-          subLabel={`${'\u20B9'}${depositPending} pending`}
+          value={`${'\u20B9'}${formatCurrency(depositCollected)} / ${'\u20B9'}${formatCurrency(depositRequired)}`}
+          subLabel={`${'\u20B9'}${formatCurrency(depositPending)} pending`}
           tone={depositPending > 0 ? 'warning' : 'success'}
           icon={<ShieldIcon width={18} height={18} />}
         />
         <StatCard
           label="Other Cash"
-          value={`${'\u20B9'}${otherCashIntake}`}
-          subLabel="Extra income received"
+          value={`${'\u20B9'}${formatCurrency(otherCashIntake)}`}
+          subLabel={otherCashSpent > 0 ? `${'\u20B9'}${formatCurrency(otherCashSpent)} spent` : 'Extra income received'}
           tone={otherCashIntake > 0 ? 'success' : 'default'}
           icon={<CashIcon width={18} height={18} />}
         />
@@ -1343,7 +945,7 @@ const Dashboard = () => {
               </div>
               <div className="text-right">
                 <div className="text-sm font-medium text-[var(--text)]">
-                  {'\u20B9'}{Math.round(cashProgressSegments.grandCollected)} / {'\u20B9'}{Math.round(cashProgressSegments.grandTotal)}
+                  {'\u20B9'}{formatCurrency(Math.round(cashProgressSegments.grandCollected))} / {'\u20B9'}{formatCurrency(Math.round(cashProgressSegments.grandTotal))}
                 </div>
                 <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--muted)]">
                   {t('Cash Received / Expected')}
@@ -1358,14 +960,14 @@ const Dashboard = () => {
                       key={item.label}
                       className={`${item.color} h-full`}
                       style={{ width: `${item.share}%` }}
-                      title={`${item.label}: ${'₹'}${Math.round(item.collected)} ${t('of')} ${'₹'}${Math.round(item.total)}`}
+                      title={`${item.label}: ${'₹'}${formatCurrency(Math.round(item.collected))} ${t('of')} ${'₹'}${formatCurrency(Math.round(item.total))}`}
                     />
                   ))}
                   {cashProgressSegments.remainingShare > 0 && (
                     <div
                       className="h-full bg-black/10"
                       style={{ width: `${cashProgressSegments.remainingShare}%` }}
-                      title={`${t('Remaining')}: ${'₹'}${Math.round(cashProgressSegments.remaining)}`}
+                      title={`${t('Remaining')}: ${'₹'}${formatCurrency(Math.round(cashProgressSegments.remaining))}`}
                     />
                   )}
                 </>
@@ -1379,7 +981,7 @@ const Dashboard = () => {
                   <div
                     key={`${item.label}-legend`}
                     className="flex items-center justify-between rounded-xl border border-black/5 bg-[var(--surface-1)] px-3 py-2 text-xs"
-                    title={`${'₹'}${Math.round(item.collected)} ${t('of')} ${'₹'}${Math.round(item.total)}`}
+                    title={`${'₹'}${formatCurrency(Math.round(item.collected))} ${t('of')} ${'₹'}${formatCurrency(Math.round(item.total))}`}
                   >
                     <div className="flex items-center gap-2 text-[var(--muted)]">
                       <span className={`h-2.5 w-2.5 rounded-full ${item.color}`} />
@@ -1405,7 +1007,7 @@ const Dashboard = () => {
                       <span>{t('Remaining')}</span>
                     </div>
                     <div className="font-medium text-[var(--text)]">
-                      {'₹'}{Math.round(cashProgressSegments.remaining)} {t('pending')}
+                      {'₹'}{formatCurrency(Math.round(cashProgressSegments.remaining))} {t('pending')}
                     </div>
                   </div>
                 )}
@@ -1449,7 +1051,7 @@ const Dashboard = () => {
                           <div className="text-xs text-[var(--muted)]">{formatMonthYear(item.month, item.year)}</div>
                         </div>
                         <div className="text-right">
-                          <div className="font-semibold">{'\u20B9'}{remaining}</div>
+                          <div className="font-semibold">{'\u20B9'}{formatCurrency(remaining)}</div>
                           <div className="text-xs text-[var(--muted)]">Remaining</div>
                         </div>
                       </div>
@@ -1477,7 +1079,7 @@ const Dashboard = () => {
                           <div className="text-xs text-[var(--muted)]">{formatMonthKey(bill.month)}</div>
                         </div>
                         <div className="text-right">
-                          <div className="font-semibold">{'\u20B9'}{bill.amount}</div>
+                          <div className="font-semibold">{'\u20B9'}{formatCurrency(bill.amount)}</div>
                           <div className="text-xs text-[var(--muted)]">{t('pending')}</div>
                         </div>
                       </div>
@@ -1503,7 +1105,7 @@ const Dashboard = () => {
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="font-semibold">{'\u20B9'}{item.amount}</div>
+                          <div className="font-semibold">{'\u20B9'}{formatCurrency(item.amount)}</div>
                           <div className="text-xs text-[var(--muted)]">{t('pending')}</div>
                         </div>
                       </div>
@@ -1529,7 +1131,7 @@ const Dashboard = () => {
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="font-semibold">{'\u20B9'}{item.remaining}</div>
+                          <div className="font-semibold">{'\u20B9'}{formatCurrency(item.remaining)}</div>
                           <div className="text-xs text-[var(--muted)]">{t('pending')}</div>
                         </div>
                       </div>
@@ -1547,6 +1149,8 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {showPaymentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-6">
@@ -1653,11 +1257,11 @@ const Dashboard = () => {
                                 {formatMonthYear(record.month, record.year)}
                               </div>
                               <div className="text-xs text-[var(--muted)]">
-                                Paid {'\u20B9'}{paidAmount} of {'\u20B9'}{record.rentAmount}
+                                Paid {'\u20B9'}{formatCurrency(paidAmount)} of {'\u20B9'}{formatCurrency(record.rentAmount)}
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="font-semibold">{'\u20B9'}{remaining}</div>
+                              <div className="font-semibold">{'\u20B9'}{formatCurrency(remaining)}</div>
                               <button
                                 type="button"
                                 className="btn btn-sm btn-success"
@@ -1712,8 +1316,8 @@ const Dashboard = () => {
                               </div>
                             </div>
                             <div className="text-right">
-                              <div className="font-semibold">{'\u20B9'}{record.paidAmount || record.rentAmount}</div>
-                              <div className="text-xs text-[var(--muted)]">of {'\u20B9'}{record.rentAmount}</div>
+                              <div className="font-semibold">{'\u20B9'}{formatCurrency(record.paidAmount || record.rentAmount)}</div>
+                              <div className="text-xs text-[var(--muted)]">of {'\u20B9'}{formatCurrency(record.rentAmount)}</div>
                             </div>
                           </div>
                         );
@@ -1748,7 +1352,7 @@ const Dashboard = () => {
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="font-semibold">{'\u20B9'}{bill.amount}</div>
+                              <div className="font-semibold">{'\u20B9'}{formatCurrency(bill.amount)}</div>
                               <button
                                 type="button"
                                 className="btn btn-sm btn-success"
@@ -1764,6 +1368,10 @@ const Dashboard = () => {
                                     { ...bill, updatedAt: new Date().toISOString() },
                                     ...prev
                                   ]);
+                                  invalidateByTag('utilityBill', targetProperty);
+                                  invalidateByTag('dashboard', targetProperty);
+                                  invalidateByTag('dashboard');
+                                  void reloadMainScope();
                                 }}
                               >
                                 Mark Paid
@@ -1799,7 +1407,7 @@ const Dashboard = () => {
                                 Paid on {formatDate(paidOn)}
                               </div>
                             </div>
-                            <div className="font-semibold">{'\u20B9'}{bill.amount}</div>
+                            <div className="font-semibold">{'\u20B9'}{formatCurrency(bill.amount)}</div>
                           </div>
                         );
                       })}
@@ -1832,7 +1440,7 @@ const Dashboard = () => {
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="font-semibold">{'\u20B9'}{item.amount}</div>
+                              <div className="font-semibold">{'\u20B9'}{formatCurrency(item.amount)}</div>
                               <button
                                 type="button"
                                 className="btn btn-sm btn-success"
@@ -1864,6 +1472,10 @@ const Dashboard = () => {
                                     },
                                     ...prev
                                   ]);
+                                  invalidateByTag('payment', targetProperty);
+                                  invalidateByTag('dashboard', targetProperty);
+                                  invalidateByTag('dashboard');
+                                  void reloadMainScope();
                                 }}
                               >
                                 Mark Paid
@@ -1906,7 +1518,7 @@ const Dashboard = () => {
                                 Paid on {formatDate(paidOn)}
                               </div>
                             </div>
-                            <div className="font-semibold">{'\u20B9'}{item.amount}</div>
+                            <div className="font-semibold">{'\u20B9'}{formatCurrency(item.amount)}</div>
                           </div>
                         );
                       })}
@@ -1938,11 +1550,11 @@ const Dashboard = () => {
                                 Unit {item.unitNumber || '-'} • {propertyNameById.get(pid) || 'Property'}
                               </div>
                               <div className="text-xs text-[var(--muted)]">
-                                Paid {'\u20B9'}{item.paid} of {'\u20B9'}{item.required}
+                                Paid {'\u20B9'}{formatCurrency(item.paid)} of {'\u20B9'}{formatCurrency(item.required)}
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="font-semibold">{'\u20B9'}{item.remaining}</div>
+                              <div className="font-semibold">{'\u20B9'}{formatCurrency(item.remaining)}</div>
                               <button
                                 type="button"
                                 className="btn btn-sm btn-success"
@@ -1995,7 +1607,7 @@ const Dashboard = () => {
                                 {formatDate(item.date)}
                               </div>
                             </div>
-                            <div className="font-semibold">{'\u20B9'}{item.amount}</div>
+                            <div className="font-semibold">{'\u20B9'}{formatCurrency(item.amount)}</div>
                           </div>
                         );
                       })}
@@ -2020,16 +1632,28 @@ const Dashboard = () => {
                   }
                   setPaymentSaving(true);
                   try {
-                    const isMaintenanceSpent = otherForm.type === 'maintenance';
+                    const isDirectional = otherForm.type === 'other' || otherForm.type === 'maintenance';
+                    const isMaintenanceSpent = otherForm.type === 'maintenance' && otherForm.direction === 'out';
+                    const isMaintenanceCollected = otherForm.type === 'maintenance' && otherForm.direction === 'in';
+                    const defaultNotes = isMaintenanceSpent
+                      ? 'Maintenance spent'
+                      : isMaintenanceCollected
+                        ? 'Maintenance collected (extra)'
+                        : undefined;
                     await api.post(`/properties/${paymentPropertyId}/payments`, {
                       type: otherForm.type,
                       amount: Number(otherForm.amount),
                       date: otherForm.date,
-                      notes: otherForm.notes || (isMaintenanceSpent ? 'Maintenance spent' : undefined),
+                      notes: otherForm.notes || defaultNotes,
                       unitId: otherForm.unitId || undefined,
-                      tenantId: otherForm.tenantId || undefined
+                      tenantId: otherForm.tenantId || undefined,
+                      direction: isDirectional ? otherForm.direction : undefined
                     });
+                    invalidateByTag('payment', paymentPropertyId);
+                    invalidateByTag('dashboard', paymentPropertyId);
+                    invalidateByTag('dashboard');
                     setShowPaymentModal(false);
+                    void reloadMainScope();
                     toast.success('Payment recorded.');
                   } catch (err: any) {
                     toast.error(err?.response?.data?.message || 'Failed to save payment.');
@@ -2044,12 +1668,40 @@ const Dashboard = () => {
                     <select
                       className="w-full px-3 py-2 mt-1"
                       value={otherForm.type}
-                      onChange={(e) => setOtherForm((prev) => ({ ...prev, type: e.target.value }))}
+                      onChange={(e) =>
+                        setOtherForm((prev) => ({
+                          ...prev,
+                          type: e.target.value,
+                          direction: e.target.value === 'maintenance' ? 'out' : 'in'
+                        }))
+                      }
                     >
                       <option value="other">Other</option>
                       <option value="maintenance">Maintenance</option>
                     </select>
                   </div>
+                  {(otherForm.type === 'other' || otherForm.type === 'maintenance') && (
+                    <div>
+                      <label className="text-xs text-[var(--muted)]">Direction</label>
+                      <select
+                        className="w-full px-3 py-2 mt-1"
+                        value={otherForm.direction}
+                        onChange={(e) => setOtherForm((prev) => ({ ...prev, direction: e.target.value as 'in' | 'out' }))}
+                      >
+                        {otherForm.type === 'maintenance' ? (
+                          <>
+                            <option value="in">Cash In (extra maintenance collected)</option>
+                            <option value="out">Cash Out (maintenance/repair expense)</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="in">Cash In (income received)</option>
+                            <option value="out">Cash Out (expense paid)</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="text-xs text-[var(--muted)]">Amount</label>
                     <input
@@ -2136,7 +1788,7 @@ const Dashboard = () => {
                     <div className="text-lg font-semibold">{collectModal.title}</div>
                     <div className="mt-1 text-sm text-[var(--muted)]">{collectModal.subtitle}</div>
                     <div className="mt-2 text-xs uppercase tracking-wide text-[var(--muted)]">
-                      Remaining {'\u20B9'}{collectModal.remaining}
+                      Remaining {'\u20B9'}{formatCurrency(collectModal.remaining)}
                     </div>
                   </div>
                   <button

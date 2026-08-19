@@ -4,7 +4,7 @@ import { useI18n } from '../lib/i18n';
 interface StatCardProps {
   label: string;
   value: string | number;
-  subLabel?: string;
+  subLabel?: ReactNode;
   tone?: 'default' | 'success' | 'warning' | 'danger';
   icon?: ReactNode;
 }
@@ -27,7 +27,9 @@ const StatCard = ({ label, value, subLabel, tone = 'default', icon }: StatCardPr
         <div className="min-w-0">
           <div className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">{t(label)}</div>
           <div className={`mt-2 text-2xl font-semibold ${toneStyle.text}`}>{value}</div>
-          {subLabel && <div className="mt-1 text-xs text-[var(--muted)]">{t(subLabel)}</div>}
+          {subLabel && (
+            <div className="mt-1 text-xs text-[var(--muted)]">{typeof subLabel === 'string' ? t(subLabel) : subLabel}</div>
+          )}
         </div>
         {icon && (
           <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${toneStyle.iconBg} ${toneStyle.iconText}`}>

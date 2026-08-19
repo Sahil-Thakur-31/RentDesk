@@ -14,6 +14,7 @@ import {
 } from '../services/portfolioService';
 import { deletePortfolioCascade } from '../services/destructiveActionService';
 import { requireString } from '../utils/request';
+import { emitPortfolioEvent } from '../ws/emit';
 
 const getId = (value: any) => String(value?._id || value || '');
 const MANAGEMENT_ROLES = new Set<UserRole>(['owner', 'warden']);
@@ -160,6 +161,8 @@ export const updatePortfolioSettings = asyncHandler(async (req, res) => {
   portfolio.reminderLeadDays = normalizeLeadDays(req.body?.reminderLeadDays ?? portfolio.reminderLeadDays);
   await portfolio.save();
 
+  emitPortfolioEvent(req, { resource: 'portfolio', action: 'update', id: getId(portfolio._id), portfolioId: getId(portfolio._id) });
+
   res.json({ message: 'Portfolio settings updated' });
 });
 
@@ -172,8 +175,11 @@ export const deleteCurrentPortfolio = asyncHandler(async (req, res) => {
     throw new HttpError(403, 'Only the owner can delete this portfolio');
   }
 
-  await deletePortfolioCascade(getId(portfolio._id));
+  const deletedPortfolioId = getId(portfolio._id);
+  await deletePortfolioCascade(deletedPortfolioId);
   const refreshedUser = await User.findById(req.user._id).select('activePortfolioId');
+
+  emitPortfolioEvent(req, { resource: 'portfolio', action: 'delete', id: deletedPortfolioId, portfolioId: deletedPortfolioId });
 
   res.json({
     message: 'Portfolio deleted',
@@ -248,6 +254,8 @@ export const invitePortfolioMember = asyncHandler(async (req, res) => {
   portfolio.joinRequests = portfolio.joinRequests.filter((request) => getId(request.user) !== getId(user._id));
   await portfolio.save();
 
+  emitPortfolioEvent(req, { resource: 'portfolio', action: 'memberInvite', id: getId(portfolio._id), portfolioId: getId(portfolio._id) });
+
   res.status(201).json({ message: 'Member added to portfolio' });
 });
 
@@ -277,6 +285,8 @@ export const updatePortfolioMember = asyncHandler(async (req, res) => {
 
   await portfolio.save();
 
+  emitPortfolioEvent(req, { resource: 'portfolio', action: 'memberUpdate', id: getId(portfolio._id), portfolioId: getId(portfolio._id) });
+
   res.json({ message: 'Member updated' });
 });
 
@@ -291,6 +301,8 @@ export const removePortfolioMember = asyncHandler(async (req, res) => {
 
   member.deleteOne();
   await portfolio.save();
+
+  emitPortfolioEvent(req, { resource: 'portfolio', action: 'memberRemove', id: getId(portfolio._id), portfolioId: getId(portfolio._id) });
 
   res.json({ message: 'Member removed' });
 });
@@ -354,6 +366,8 @@ export const approvePortfolioJoinRequest = asyncHandler(async (req, res) => {
   request.deleteOne();
   await portfolio.save();
 
+  emitPortfolioEvent(req, { resource: 'portfolio', action: 'joinApproved', id: getId(portfolio._id), portfolioId: getId(portfolio._id) });
+
   res.json({ message: 'Join request approved' });
 });
 
@@ -367,6 +381,8 @@ export const rejectPortfolioJoinRequest = asyncHandler(async (req, res) => {
   if (!request) throw new HttpError(404, 'Join request not found');
   request.deleteOne();
   await portfolio.save();
+
+  emitPortfolioEvent(req, { resource: 'portfolio', action: 'joinRejected', id: getId(portfolio._id), portfolioId: getId(portfolio._id) });
 
   res.json({ message: 'Join request denied' });
 });

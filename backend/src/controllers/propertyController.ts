@@ -14,6 +14,7 @@ import {
   getUserPortfolio
 } from '../services/portfolioService';
 import { requireString } from '../utils/request';
+import { emitPortfolioEvent } from '../ws/emit';
 
 const getId = (value: any) => String(value?._id || value || '');
 
@@ -25,6 +26,7 @@ export const createProperty = asyncHandler(async (req, res) => {
     city,
     state,
     pincode,
+    size,
     notes,
     maintenanceCharge,
     electricityUnitRate,
@@ -54,6 +56,7 @@ export const createProperty = asyncHandler(async (req, res) => {
     city,
     state,
     pincode,
+    size,
     notes,
     maintenanceCharge,
     electricityUnitRate,
@@ -69,6 +72,14 @@ export const createProperty = asyncHandler(async (req, res) => {
     }
   });
   await portfolio.save();
+
+  emitPortfolioEvent(req, {
+    resource: 'property',
+    action: 'create',
+    id: getId(property._id),
+    data: property,
+    portfolioId: getId(portfolio._id)
+  });
 
   res.status(201).json(property);
 });
@@ -126,10 +137,11 @@ export const getPropertyOverview = asyncHandler(async (req, res) => {
 
   const propertyObjectId = new Types.ObjectId(propertyId);
 
-  const [totalUnits, occupiedUnits, vacantUnits] = await Promise.all([
+  const [totalUnits, occupiedUnits, vacantUnits, maintenanceUnits] = await Promise.all([
     Unit.countDocuments({ propertyId, isArchived: false }),
     Unit.countDocuments({ propertyId, status: 'occupied', isArchived: false }),
-    Unit.countDocuments({ propertyId, status: 'vacant', isArchived: false })
+    Unit.countDocuments({ propertyId, status: 'vacant', isArchived: false }),
+    Unit.countDocuments({ propertyId, status: 'maintenance', isArchived: false })
   ]);
 
   const expectedRentAgg = await Unit.aggregate([
@@ -165,6 +177,7 @@ export const getPropertyOverview = asyncHandler(async (req, res) => {
       totalUnits,
       occupiedUnits,
       vacantUnits,
+      maintenanceUnits,
       monthlyExpectedRent: expectedRent,
       collectedRent,
       pendingRent: Math.max(0, expectedRent - collectedRent)
@@ -180,6 +193,8 @@ export const updateProperty = asyncHandler(async (req, res) => {
   Object.assign(property, req.body);
   await property.save();
 
+  emitPortfolioEvent(req, { resource: 'property', action: 'update', id: getId(property._id), data: property });
+
   res.json(property);
 });
 
@@ -187,9 +202,30 @@ export const archiveProperty = asyncHandler(async (req, res) => {
   const propertyId = requireString(req.params.propertyId, 'propertyId');
   const property = await Property.findById(propertyId);
   if (!property) throw new HttpError(404, 'Property not found');
+
+  const occupiedUnitCount = await Unit.countDocuments({
+    propertyId,
+    isArchived: false,
+    currentTenant: { $ne: null }
+  });
+  if (occupiedUnitCount > 0) {
+    throw new HttpError(
+      400,
+      `Cannot deactivate this property because ${occupiedUnitCount} unit${occupiedUnitCount === 1 ? '' : 's'} still ${occupiedUnitCount === 1 ? 'has' : 'have'} an active tenant. Move all tenants out first.`
+    );
+  }
+
   property.isArchived = true;
   await property.save();
-  res.json({ message: 'Property archived' });
+
+  const { modifiedCount } = await Unit.updateMany({ propertyId, isArchived: false }, { $set: { isArchived: true } });
+
+  emitPortfolioEvent(req, { resource: 'property', action: 'archive', id: getId(property._id) });
+  if (modifiedCount > 0) {
+    emitPortfolioEvent(req, { resource: 'unit', action: 'bulkArchive', id: propertyId });
+  }
+
+  res.json({ message: 'Property and its units archived', unitsArchived: modifiedCount });
 });
 
 export const restoreProperty = asyncHandler(async (req, res) => {
@@ -198,5 +234,6 @@ export const restoreProperty = asyncHandler(async (req, res) => {
   if (!property) throw new HttpError(404, 'Property not found');
   property.isArchived = false;
   await property.save();
+  emitPortfolioEvent(req, { resource: 'property', action: 'restore', id: getId(property._id) });
   res.json({ message: 'Property restored' });
 });

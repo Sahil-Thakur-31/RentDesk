@@ -1,10 +1,14 @@
+import http from 'http';
 import app from './app';
 import { connectDB } from './config/db';
 import { env } from './config/env';
+import { attachWebSocketServer } from './ws/socketServer';
 
 const start = async () => {
   await connectDB();
-  app.listen(env.port, () => {
+  const httpServer = http.createServer(app);
+  attachWebSocketServer(httpServer);
+  httpServer.listen(env.port, () => {
     console.log(`RentDesk API running on port ${env.port}`);
   });
 };

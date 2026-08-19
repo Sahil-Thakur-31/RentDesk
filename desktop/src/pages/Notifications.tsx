@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotificationsFeed } from '../lib/notificationCenter';
+import { SkeletonBlock } from '../components/Skeleton';
 
 const toneMap = {
   warning: {
@@ -25,7 +26,7 @@ const Filters = ['all', 'warning', 'success', 'info'] as const;
 const Notifications = () => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<(typeof Filters)[number]>('all');
-  const { notifications } = useNotificationsFeed();
+  const { notifications, loading } = useNotificationsFeed();
 
   const filteredNotifications = useMemo(() => {
     return filter === 'all' ? notifications : notifications.filter((item) => item.tone === filter);
@@ -45,6 +46,44 @@ const Notifications = () => {
     if (filter === 'info') return 'General updates across the portfolio';
     return 'One place to review attention items and recent activity';
   }, [filter]);
+
+  if (loading && !notifications.length) {
+    return (
+      <div className="space-y-6 pb-6">
+        <div className="grid gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm space-y-3">
+              <SkeletonBlock height={10} width="55%" />
+              <SkeletonBlock height={28} width="30%" />
+              <SkeletonBlock height={12} width="70%" />
+            </div>
+          ))}
+        </div>
+        <div className="rounded-3xl border border-black/5 bg-white p-6 shadow-sm space-y-6">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="space-y-2">
+              <SkeletonBlock height={10} width={160} />
+              <SkeletonBlock height={22} width={280} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonBlock key={i} height={36} width={i === 0 ? 60 : 100} rounded="rounded-full" />
+              ))}
+            </div>
+          </div>
+          <div className="space-y-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="rounded-3xl border border-black/5 p-5 space-y-3">
+                <SkeletonBlock height={20} width={100} rounded="rounded-full" />
+                <SkeletonBlock height={18} width="50%" />
+                <SkeletonBlock height={12} width="80%" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-6">

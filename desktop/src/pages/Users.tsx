@@ -14,10 +14,16 @@ const roleTone = (role: string): BadgeTone => {
 const Users = () => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
 
   const search = async () => {
-    const response = await api.get(`/users?email=${encodeURIComponent(query)}`);
-    setResults(response.data);
+    setSearching(true);
+    try {
+      const response = await api.get(`/users?email=${encodeURIComponent(query)}`);
+      setResults(response.data);
+    } finally {
+      setSearching(false);
+    }
   };
 
   const columns: TableColumn<any>[] = [
@@ -59,6 +65,7 @@ const Users = () => {
         emptyIcon={<UserIcon width={22} height={22} />}
         emptyTitle="Search to view users"
         emptyDescription="Look up a registered user by their email address."
+        loading={searching}
       />
     </div>
   );

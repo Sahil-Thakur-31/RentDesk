@@ -2,7 +2,7 @@
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import { formatMonthKey, getCurrentDateValue, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
-import { useDataVersion } from '../lib/dataSync';
+import { cachedGet, useCachedQuery } from '../lib/queryCache';
 import { toast } from '../lib/toast';
 
 const parseDownloadName = (header?: string, fallback = 'report') => {
@@ -20,7 +20,8 @@ const downloadBlob = (blob: Blob, fileName: string) => {
 };
 
 const Reports = () => {
-  const [properties, setProperties] = useState<any[]>([]);
+  const { data: propertiesData } = useCachedQuery<any[]>('/properties');
+  const properties = propertiesData || [];
   const [tenants, setTenants] = useState<any[]>([]);
   const [propertyId, setPropertyId] = useState('');
   const [tenantId, setTenantId] = useState('');
@@ -31,19 +32,6 @@ const Reports = () => {
   const [maintenanceStart, setMaintenanceStart] = useState(getCurrentDateValue());
   const [maintenanceEnd, setMaintenanceEnd] = useState(getCurrentDateValue());
   const [loading, setLoading] = useState(false);
-  const dataVersion = useDataVersion();
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const response = await api.get('/properties');
-        setProperties(response.data || []);
-      } catch (err: any) {
-        toast.error(err?.response?.data?.message || 'Unable to load properties right now.');
-      }
-    };
-    void load();
-  }, [dataVersion]);
 
   useEffect(() => {
     if (!propertyId) {
@@ -54,10 +42,9 @@ const Reports = () => {
 
     const loadTenants = async () => {
       try {
-        const response = await api.get(`/properties/${propertyId}/tenants`);
-        const nextTenants = response.data || [];
-        setTenants(nextTenants);
-        setTenantId((current) => (nextTenants.some((tenant: any) => tenant._id === current) ? current : ''));
+        const nextTenants = await cachedGet(`/properties/${propertyId}/tenants`);
+        setTenants(nextTenants || []);
+        setTenantId((current) => ((nextTenants || []).some((tenant: any) => tenant._id === current) ? current : ''));
       } catch {
         setTenants([]);
         setTenantId('');
@@ -65,7 +52,7 @@ const Reports = () => {
     };
 
     void loadTenants();
-  }, [propertyId, dataVersion]);
+  }, [propertyId]);
 
   const downloadReport = async (path: string, params: Record<string, string>, fallbackName: string) => {
     setLoading(true);

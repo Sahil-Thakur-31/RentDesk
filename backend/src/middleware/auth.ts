@@ -8,6 +8,15 @@ interface TokenPayload {
   id: string;
 }
 
+export const verifyTokenAndLoadUser = async (token: string) => {
+  const payload = jwt.verify(token, env.jwtSecret) as TokenPayload;
+  const user = await User.findById(payload.id);
+  if (!user) {
+    throw new HttpError(401, 'User not found');
+  }
+  return user;
+};
+
 export const requireAuth = asyncHandler(async (req, res, next) => {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
@@ -15,13 +24,6 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
   }
 
   const token = header.replace('Bearer ', '').trim();
-  const payload = jwt.verify(token, env.jwtSecret) as TokenPayload;
-  const user = await User.findById(payload.id);
-
-  if (!user) {
-    throw new HttpError(401, 'User not found');
-  }
-
-  req.user = user;
+  req.user = await verifyTokenAndLoadUser(token);
   next();
 });

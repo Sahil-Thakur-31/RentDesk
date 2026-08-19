@@ -34,7 +34,8 @@ export const buildDashboard = async (userId: string, month?: number, year?: numb
         depositRequired: 0,
         depositCollected: 0,
         depositPending: 0,
-        otherCashIntake: 0
+        otherCashIntake: 0,
+        otherCashSpent: 0
       },
       charts: { rentCollection: [], maintenanceExpenses: [] },
       lists: { pendingRentTenants: [] }
@@ -180,7 +181,13 @@ export const buildDashboard = async (userId: string, month?: number, year?: numb
             date: { $gte: monthStart, $lte: monthEnd }
           }
         },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
+        {
+          $group: {
+            _id: null,
+            inTotal: { $sum: { $cond: [{ $eq: ['$direction', 'out'] }, 0, '$amount'] } },
+            outTotal: { $sum: { $cond: [{ $eq: ['$direction', 'out'] }, '$amount', 0] } }
+          }
+        }
       ])
     ]);
 
@@ -207,7 +214,8 @@ export const buildDashboard = async (userId: string, month?: number, year?: numb
   const depositCollected = activeTenants.reduce((sum, tenant) => {
     return sum + Math.max(0, depositHeldByTenant.get(tenant._id.toString()) || 0);
   }, 0);
-  const otherCashIntake = otherCashAgg[0]?.total || 0;
+  const otherCashIntake = otherCashAgg[0]?.inTotal || 0;
+  const otherCashSpent = otherCashAgg[0]?.outTotal || 0;
 
   return {
     totals: {
@@ -230,7 +238,8 @@ export const buildDashboard = async (userId: string, month?: number, year?: numb
       depositRequired,
       depositCollected,
       depositPending: Math.max(0, depositRequired - depositCollected),
-      otherCashIntake
+      otherCashIntake,
+      otherCashSpent
     },
     charts: {
       rentCollection: rentCollectionChart,

@@ -1,22 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import { appStorage } from '../lib/appStorage';
-import { notifyDataChanged, useDataVersion } from '../lib/dataSync';
-import { formatDateTime } from '../lib/dateFormat';
+import { invalidateAll } from '../lib/queryCache';
 import { LANGUAGE_OPTIONS, useI18n } from '../lib/i18n';
-import { useSyncStatus } from '../lib/offlineSync';
+import { disconnectRealtime, useRealtimeStatus } from '../lib/realtimeSocket';
 import { toast } from '../lib/toast';
-
-const CACHE_STORAGE_KEY = 'rentdesk_http_cache_v1';
-const QUEUE_STORAGE_KEY = 'rentdesk_offline_queue_v1';
-const BOOTSTRAP_VERSION_KEY = 'rentdesk_offline_bootstrap_v1';
 
 const Settings = () => {
   const { t, language, setLanguage } = useI18n();
   const navigate = useNavigate();
-  const syncStatus = useSyncStatus();
-  const dataVersion = useDataVersion();
+  const realtimeStatus = useRealtimeStatus();
   const [me, setMe] = useState<any>(null);
   const [portfolio, setPortfolio] = useState<any>(null);
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
@@ -34,30 +28,18 @@ const Settings = () => {
     };
 
     void load();
-  }, [dataVersion, t]);
-
-  const localSnapshotCount = useMemo(() => {
-    try {
-      const raw = appStorage.getItem(CACHE_STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : {};
-      return Object.keys(parsed || {}).length;
-    } catch {
-      return 0;
-    }
-  }, [dataVersion]);
+  }, [t]);
 
   const clearLocalSnapshot = () => {
-    appStorage.removeItem(CACHE_STORAGE_KEY);
-    notifyDataChanged();
+    invalidateAll();
     toast.success(t('Local data cleared. RentDesk will rebuild it automatically.'));
   };
 
   const clearSessionStorage = () => {
+    disconnectRealtime();
+    invalidateAll();
     appStorage.removeItem('rentdesk_token');
     appStorage.removeItem('rentdesk_active_portfolio_id');
-    appStorage.removeItem(CACHE_STORAGE_KEY);
-    appStorage.removeItem(QUEUE_STORAGE_KEY);
-    appStorage.removeItem(BOOTSTRAP_VERSION_KEY);
   };
 
   const logout = () => {
@@ -102,22 +84,26 @@ const Settings = () => {
             <div className="rounded-2xl border border-black/5 bg-[var(--surface-1)] px-4 py-3">
               <div className="text-xs uppercase tracking-wide text-[var(--muted)]">{t('Connection')}</div>
               <div className="mt-2 flex items-center gap-2 text-xl font-semibold">
-                <span className={`h-2.5 w-2.5 rounded-full ${syncStatus.isOnline ? (syncStatus.isSyncing ? 'bg-sky-500 animate-pulse' : 'bg-emerald-500') : 'bg-amber-500'}`} />
-                {syncStatus.isOnline ? (syncStatus.isSyncing ? t('Syncing') : t('Online')) : t('Offline')}
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-black/5 bg-[var(--surface-1)] px-4 py-3">
-                <div className="text-xs uppercase tracking-wide text-[var(--muted)]">{t('Queued')}</div>
-                <div className="mt-2 text-xl font-semibold">{syncStatus.pendingCount}</div>
-              </div>
-              <div className="rounded-2xl border border-black/5 bg-[var(--surface-1)] px-4 py-3">
-                <div className="text-xs uppercase tracking-wide text-[var(--muted)]">{t('Local Views')}</div>
-                <div className="mt-2 text-xl font-semibold">{localSnapshotCount}</div>
+                <span
+                  className={`h-2.5 w-2.5 rounded-full ${
+                    realtimeStatus === 'connected'
+                      ? 'bg-emerald-500'
+                      : realtimeStatus === 'connecting' || realtimeStatus === 'reconnecting'
+                        ? 'bg-sky-500 animate-pulse'
+                        : 'bg-amber-500'
+                  }`}
+                />
+                {realtimeStatus === 'connected'
+                  ? t('Online')
+                  : realtimeStatus === 'connecting'
+                    ? t('Connecting')
+                    : realtimeStatus === 'reconnecting'
+                      ? t('Reconnecting')
+                      : t('Offline')}
               </div>
             </div>
             <div className="rounded-2xl border border-black/5 bg-[var(--surface-1)] px-4 py-3 text-sm text-[var(--muted)]">
-              {t('Last synced:')} {syncStatus.lastSyncedAt ? formatDateTime(syncStatus.lastSyncedAt) : t('Waiting')}
+              {t('Changes made anywhere on this portfolio sync to this device automatically while connected.')}
             </div>
           </div>
         </div>

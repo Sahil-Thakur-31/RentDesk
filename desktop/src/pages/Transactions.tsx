@@ -6,8 +6,9 @@ import Badge, { type BadgeTone } from '../components/Badge';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
 import { CloseIcon, TransactionsIcon } from '../components/icons';
 import { formatDate, formatMonthKey, formatMonthYear, getCurrentDateValue, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
-import { useDataVersion } from '../lib/dataSync';
+import { cachedGet, invalidateByTag, isCached, useCachedQuery } from '../lib/queryCache';
 import { toast } from '../lib/toast';
+import { formatCurrency } from '../lib/format';
 
 type TabKey = 'all' | 'rent' | 'electricity' | 'maintenance' | 'deposit' | 'others';
 type MaintenanceView = 'collected' | 'spent';
@@ -35,8 +36,16 @@ const getActionDateFromMonth = (monthValue: string) => {
   return new Date(selectedYear, selectedMonth - 1, lastDay, 12, 0, 0, 0).toISOString();
 };
 
+const getMonthDateRange = (monthValue: string) => {
+  const [year, month] = monthValue.split('-').map(Number);
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 1);
+  return { startDate: start.toISOString(), endDate: end.toISOString() };
+};
+
 const Transactions = () => {
-  const [properties, setProperties] = useState<any[]>([]);
+  const { data: propertiesData, loading: propertiesLoading } = useCachedQuery<any[]>('/properties');
+  const properties = propertiesData || [];
   const [propertyId, setPropertyId] = useState('');
   const [tab, setTab] = useState<TabKey>('all');
   const [maintenanceView, setMaintenanceView] = useState<MaintenanceView>('collected');
@@ -45,6 +54,7 @@ const Transactions = () => {
   const [utilityBills, setUtilityBills] = useState<any[]>([]);
   const [maintenance, setMaintenance] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
   const [showAddPayment, setShowAddPayment] = useState(false);
   const [addType, setAddType] = useState<'rent' | 'electricity' | 'maintenance' | 'deposit' | 'others'>('rent');
   const [formPropertyId, setFormPropertyId] = useState('');
@@ -83,35 +93,48 @@ const Transactions = () => {
   const [otherForm, setOtherForm] = useState({
     amount: '',
     date: getCurrentDateValue(),
-    notes: ''
+    notes: '',
+    direction: 'in' as 'in' | 'out'
   });
-  const dataVersion = useDataVersion();
   const selectedRentTenant = formTenants.find((tenant) => tenant._id === rentForm.tenantId);
   const selectedDepositTenant = formTenants.find((tenant) => tenant._id === depositForm.tenantId);
   const selectedElectricityRow = electricityRows.find((row) => String(row.unitId) === String(electricityForm.unitId));
 
-  useEffect(() => {
-    const load = async () => {
-      const response = await api.get('/properties');
-      const list = response.data || [];
-      setProperties(list);
-    };
-    load();
-  }, [dataVersion]);
+  const [year, month] = monthFilter.split('-').map(Number);
+  const { startDate, endDate } = getMonthDateRange(monthFilter);
 
-  useEffect(() => {
-    const load = async () => {
+  const loadTransactions = async (options?: { force?: boolean }) => {
+    const targets = propertyId ? [{ _id: propertyId, name: '' }] : properties;
+    if (options?.force) {
+      targets.forEach((property) => {
+        invalidateByTag('rentRecord', property._id);
+        invalidateByTag('utilityBill', property._id);
+        invalidateByTag('maintenance', property._id);
+        invalidateByTag('payment', property._id);
+      });
+    }
+
+    const allCached = targets.every(
+      (property) =>
+        isCached(`/properties/${property._id}/rent-records`, { month, year }) &&
+        isCached(`/properties/${property._id}/utility-bills`, { month: monthFilter }) &&
+        isCached(`/properties/${property._id}/maintenance`, { month: monthFilter }) &&
+        isCached(`/properties/${property._id}/payments`, { startDate, endDate })
+    );
+    if (!allCached) setDataLoading(true);
+
+    try {
       if (propertyId) {
-        const [rentRes, utilityRes, maintenanceRes, paymentsRes] = await Promise.all([
-          api.get(`/properties/${propertyId}/rent-records`),
-          api.get(`/properties/${propertyId}/utility-bills`),
-          api.get(`/properties/${propertyId}/maintenance`),
-          api.get(`/properties/${propertyId}/payments`)
+        const [rentData, utilityData, maintenanceData, paymentsData] = await Promise.all([
+          cachedGet(`/properties/${propertyId}/rent-records`, { month, year }),
+          cachedGet(`/properties/${propertyId}/utility-bills`, { month: monthFilter }),
+          cachedGet(`/properties/${propertyId}/maintenance`, { month: monthFilter }),
+          cachedGet(`/properties/${propertyId}/payments`, { startDate, endDate })
         ]);
-        setRentRecords(rentRes.data);
-        setUtilityBills(utilityRes.data);
-        setMaintenance(maintenanceRes.data);
-        setPayments(paymentsRes.data);
+        setRentRecords(rentData || []);
+        setUtilityBills(utilityData || []);
+        setMaintenance(maintenanceData || []);
+        setPayments(paymentsData || []);
         return;
       }
 
@@ -126,17 +149,17 @@ const Transactions = () => {
       const responses = await Promise.all(
         properties.map((property) =>
           Promise.all([
-            api.get(`/properties/${property._id}/rent-records`),
-            api.get(`/properties/${property._id}/utility-bills`),
-            api.get(`/properties/${property._id}/maintenance`),
-            api.get(`/properties/${property._id}/payments`)
+            cachedGet(`/properties/${property._id}/rent-records`, { month, year }),
+            cachedGet(`/properties/${property._id}/utility-bills`, { month: monthFilter }),
+            cachedGet(`/properties/${property._id}/maintenance`, { month: monthFilter }),
+            cachedGet(`/properties/${property._id}/payments`, { startDate, endDate })
           ])
         )
       );
 
       setRentRecords(
         responses.flatMap((result, index) =>
-          (result[0].data || []).map((record: any) => ({
+          (result[0] || []).map((record: any) => ({
             ...record,
             _propertyName: properties[index].name
           }))
@@ -144,7 +167,7 @@ const Transactions = () => {
       );
       setUtilityBills(
         responses.flatMap((result, index) =>
-          (result[1].data || []).map((bill: any) => ({
+          (result[1] || []).map((bill: any) => ({
             ...bill,
             _propertyName: properties[index].name
           }))
@@ -152,7 +175,7 @@ const Transactions = () => {
       );
       setMaintenance(
         responses.flatMap((result, index) =>
-          (result[2].data || []).map((record: any) => ({
+          (result[2] || []).map((record: any) => ({
             ...record,
             _propertyName: properties[index].name
           }))
@@ -160,15 +183,33 @@ const Transactions = () => {
       );
       setPayments(
         responses.flatMap((result, index) =>
-          (result[3].data || []).map((payment: any) => ({
+          (result[3] || []).map((payment: any) => ({
             ...payment,
             _propertyName: properties[index].name
           }))
         )
       );
-    };
-    load();
-  }, [propertyId, properties, dataVersion]);
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
+  const scopeKey = `${propertyId}::${monthFilter}`;
+  const [renderedScopeKey, setRenderedScopeKey] = useState(scopeKey);
+  if (scopeKey !== renderedScopeKey) {
+    setRenderedScopeKey(scopeKey);
+    setRentRecords([]);
+    setUtilityBills([]);
+    setMaintenance([]);
+    setPayments([]);
+    setDataLoading(true);
+  }
+
+  useEffect(() => {
+    if (propertiesLoading) return;
+    loadTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId, properties.length, monthFilter, propertiesLoading]);
 
   useEffect(() => {
     if (!showAddPayment) return;
@@ -203,7 +244,8 @@ const Transactions = () => {
     setOtherForm({
       amount: '',
       date: getActionDateFromMonth(monthFilter).slice(0, 10),
-      notes: ''
+      notes: '',
+      direction: 'in'
     });
   }, [showAddPayment, propertyId, monthFilter]);
 
@@ -216,16 +258,16 @@ const Transactions = () => {
     }
 
     const loadFormData = async () => {
-      const [unitsRes, tenantsRes] = await Promise.all([
-        api.get(`/properties/${formPropertyId}/units?archived=false`),
-        api.get(`/properties/${formPropertyId}/tenants?status=active`)
+      const [unitsData, tenantsData] = await Promise.all([
+        cachedGet(`/properties/${formPropertyId}/units`, { archived: false }),
+        cachedGet(`/properties/${formPropertyId}/tenants`, { status: 'active' })
       ]);
-      setFormUnits(unitsRes.data || []);
-      setFormTenants(tenantsRes.data || []);
+      setFormUnits(unitsData || []);
+      setFormTenants(tenantsData || []);
     };
 
     loadFormData();
-  }, [showAddPayment, formPropertyId, dataVersion]);
+  }, [showAddPayment, formPropertyId]);
 
   useEffect(() => {
     if (!showAddPayment || !formPropertyId || addType !== 'electricity') {
@@ -234,20 +276,18 @@ const Transactions = () => {
     }
 
     const loadElectricityRows = async () => {
-      const response = await api.get(
-        `/properties/${formPropertyId}/utility-bills/electricity-readings?month=${electricityForm.month}`
-      );
+      const data = await cachedGet(`/properties/${formPropertyId}/utility-bills/electricity-readings`, { month: electricityForm.month });
       setElectricityRows(
-        (response.data?.rows || []).map((row: any) => ({
+        (data?.rows || []).map((row: any) => ({
           ...row,
-          electricityUnitRate: response.data?.rates?.electricityUnitRate || 0,
-          commonElectricityCharge: response.data?.rates?.commonElectricityCharge || 0
+          electricityUnitRate: data?.rates?.electricityUnitRate || 0,
+          commonElectricityCharge: data?.rates?.commonElectricityCharge || 0
         }))
       );
     };
 
     loadElectricityRows();
-  }, [showAddPayment, formPropertyId, addType, electricityForm.month, dataVersion]);
+  }, [showAddPayment, formPropertyId, addType, electricityForm.month]);
 
   useEffect(() => {
     if (!selectedElectricityRow) return;
@@ -266,10 +306,8 @@ const Transactions = () => {
 
     const loadRentRemaining = async () => {
       const [rentYear, rentMonth] = rentForm.month.split('-').map(Number);
-      const response = await api.get(`/properties/${formPropertyId}/rent-records`, {
-        params: { month: rentMonth, year: rentYear }
-      });
-      const existingRecord = (response.data || []).find(
+      const data = await cachedGet(`/properties/${formPropertyId}/rent-records`, { month: rentMonth, year: rentYear });
+      const existingRecord = (data || []).find(
         (record: any) => String(record.tenantId?._id || record.tenantId) === String(rentForm.tenantId)
       );
       const remaining = existingRecord
@@ -289,9 +327,9 @@ const Transactions = () => {
     }
 
     const loadDepositRemaining = async () => {
-      const response = await api.get(`/properties/${formPropertyId}/tenants/${depositForm.tenantId}/details`);
-      const tenant = response.data?.tenant;
-      const tenantPayments = response.data?.payments || [];
+      const data = await cachedGet(`/properties/${formPropertyId}/tenants/${depositForm.tenantId}/details`);
+      const tenant = data?.tenant;
+      const tenantPayments = data?.payments || [];
       const heldDeposit = tenantPayments.reduce((sum: number, payment: any) => {
         if (payment.type === 'deposit') return sum + (payment.amount || 0);
         if (payment.type === 'refund') return sum - (payment.amount || 0);
@@ -309,57 +347,30 @@ const Transactions = () => {
   }, [showAddPayment, addType, formPropertyId, depositForm.tenantId, depositForm.type]);
 
   const electricityBills = useMemo(() => {
-    return utilityBills.filter(
-      (bill) =>
-        String(bill.billType).toLowerCase().includes('electric') &&
-        String(bill.month || '').startsWith(monthFilter)
-    );
-  }, [utilityBills, monthFilter]);
+    return utilityBills.filter((bill) => String(bill.billType).toLowerCase().includes('electric'));
+  }, [utilityBills]);
 
-  const filteredRentRecords = useMemo(() => {
-    return rentRecords.filter(
-      (record) => `${record.year}-${String(record.month).padStart(2, '0')}` === monthFilter
-    );
-  }, [rentRecords, monthFilter]);
-
-  const filteredMaintenance = useMemo(() => {
-    return maintenance.filter(
-      (record) => String(record.date || '').slice(0, 7) === monthFilter
-    );
-  }, [maintenance, monthFilter]);
+  const filteredRentRecords = rentRecords;
+  const filteredMaintenance = maintenance;
 
   const maintenanceCollectedPayments = useMemo(() => {
     return payments.filter(
-      (payment) =>
-        payment.type === 'maintenance' &&
-        String(payment.date || '').slice(0, 7) === monthFilter &&
-        String(payment.notes || '').toLowerCase().includes('maintenance collected')
+      (payment) => payment.type === 'maintenance' && String(payment.notes || '').toLowerCase().includes('maintenance collected')
     );
-  }, [payments, monthFilter]);
+  }, [payments]);
 
   const maintenanceSpentPayments = useMemo(() => {
     return payments.filter(
-      (payment) =>
-        payment.type === 'maintenance' &&
-        String(payment.date || '').slice(0, 7) === monthFilter &&
-        !String(payment.notes || '').toLowerCase().includes('maintenance collected')
+      (payment) => payment.type === 'maintenance' && !String(payment.notes || '').toLowerCase().includes('maintenance collected')
     );
-  }, [payments, monthFilter]);
+  }, [payments]);
 
   const otherPayments = useMemo(() => {
-    return payments.filter(
-      (payment) =>
-        !['rent', 'utility', 'maintenance', 'deposit', 'refund'].includes(payment.type) &&
-        String(payment.date || '').slice(0, 7) === monthFilter
-    );
-  }, [payments, monthFilter]);
+    return payments.filter((payment) => !['rent', 'utility', 'maintenance', 'deposit', 'refund'].includes(payment.type));
+  }, [payments]);
   const depositPayments = useMemo(() => {
-    return payments.filter(
-      (payment) =>
-        ['deposit', 'refund'].includes(payment.type) &&
-        String(payment.date || '').slice(0, 7) === monthFilter
-    );
-  }, [payments, monthFilter]);
+    return payments.filter((payment) => ['deposit', 'refund'].includes(payment.type));
+  }, [payments]);
   const maintenanceSpentRows = useMemo(() => {
     const expenseRows = filteredMaintenance.map((record) => ({
       _id: `expense-${record._id}`,
@@ -514,7 +525,7 @@ const Transactions = () => {
         if (existingRecord) {
           const remaining = Math.max(0, (existingRecord.rentAmount || 0) - (existingRecord.paidAmount || 0));
           if (amount > remaining) {
-            throw new Error(`Amount cannot exceed remaining rent of ₹${remaining}.`);
+            throw new Error(`Amount cannot exceed remaining rent of ₹${formatCurrency(remaining)}.`);
           }
           await api.post(`/properties/${formPropertyId}/rent-records/${existingRecord._id}/collect`, {
             amount,
@@ -615,11 +626,17 @@ const Transactions = () => {
           type: 'other',
           amount,
           date: otherForm.date,
-          notes: otherForm.notes || undefined
+          notes: otherForm.notes || undefined,
+          direction: otherForm.direction
         });
       }
 
+      invalidateByTag('rentRecord', formPropertyId);
+      invalidateByTag('utilityBill', formPropertyId);
+      invalidateByTag('maintenance', formPropertyId);
+      invalidateByTag('payment', formPropertyId);
       closeAddPaymentModal();
+      await loadTransactions();
       toast.success('Payment recorded.');
     } catch (err: any) {
       toast.error(err?.response?.data?.message || err?.message || 'Failed to add payment.');
@@ -651,7 +668,7 @@ const Transactions = () => {
       ]
     },
     { key: 'details', label: 'Details', accessor: (item) => item.details },
-    { key: 'amount', label: 'Amount', accessor: (item) => item.amount, render: (item) => `₹${item.amount}` },
+    { key: 'amount', label: 'Amount', accessor: (item) => item.amount, render: (item) => `₹${formatCurrency(item.amount)}` },
     { key: 'date', label: 'Date', accessor: (item) => new Date(item.date).getTime(), render: (item) => formatDate(item.date) },
     {
       key: 'status',
@@ -671,13 +688,13 @@ const Transactions = () => {
       key: 'paidTotal',
       label: 'Paid / Total',
       accessor: (record) => record.paidAmount || 0,
-      render: (record) => `₹${record.paidAmount || 0} / ₹${record.rentAmount}`
+      render: (record) => `₹${formatCurrency(record.paidAmount || 0)} / ₹${formatCurrency(record.rentAmount)}`
     },
     {
       key: 'remaining',
       label: 'Remaining',
       accessor: (record) => Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0)),
-      render: (record) => `₹${Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0))}`
+      render: (record) => `₹${formatCurrency(Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0)))}`
     },
     {
       key: 'status',
@@ -693,7 +710,7 @@ const Transactions = () => {
     { key: 'unit', label: 'Unit', accessor: (bill) => bill.unitId?.unitNumber || '-' },
     { key: 'month', label: 'Month', accessor: (bill) => bill.month, render: (bill) => formatMonthKey(bill.month) },
     { key: 'units', label: 'Units', accessor: (bill) => bill.unitsConsumed },
-    { key: 'amount', label: 'Amount', accessor: (bill) => bill.amount, render: (bill) => `₹${bill.amount}` },
+    { key: 'amount', label: 'Amount', accessor: (bill) => bill.amount, render: (bill) => `₹${formatCurrency(bill.amount)}` },
     {
       key: 'status',
       label: 'Status',
@@ -708,7 +725,7 @@ const Transactions = () => {
     { key: 'date', label: 'Date', accessor: (payment) => new Date(payment.date).getTime(), render: (payment) => formatDate(payment.date) },
     { key: 'tenant', label: 'Tenant', accessor: (payment) => payment.tenantId?.fullName || '-' },
     { key: 'unit', label: 'Unit', accessor: (payment) => payment.unitId?.unitNumber || '-' },
-    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${payment.amount}` },
+    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${formatCurrency(payment.amount)}` },
     { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
   ];
 
@@ -716,7 +733,7 @@ const Transactions = () => {
     { key: 'propertyName', label: 'Property', accessor: (record) => record.propertyName },
     { key: 'date', label: 'Date', accessor: (record) => new Date(record.date).getTime(), render: (record) => formatDate(record.date) },
     { key: 'category', label: 'Category', accessor: (record) => record.category },
-    { key: 'amount', label: 'Amount', accessor: (record) => record.amount, render: (record) => `₹${record.amount}` },
+    { key: 'amount', label: 'Amount', accessor: (record) => record.amount, render: (record) => `₹${formatCurrency(record.amount)}` },
     { key: 'paidTo', label: 'Paid To', accessor: (record) => record.paidTo },
     { key: 'notes', label: 'Notes', accessor: (record) => record.notes }
   ];
@@ -735,14 +752,28 @@ const Transactions = () => {
         { value: 'refund', label: 'Refund' }
       ]
     },
-    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${payment.amount}` },
+    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${formatCurrency(payment.amount)}` },
     { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
   ];
 
   const othersTabColumns: TableColumn<any>[] = [
     { key: 'propertyName', label: 'Property', accessor: (payment) => getPropertyName(payment, properties, propertyId) },
     { key: 'type', label: 'Type', accessor: (payment) => payment.type },
-    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${payment.amount}` },
+    {
+      key: 'direction',
+      label: 'Direction',
+      accessor: (payment) => payment.direction === 'out' ? 'out' : 'in',
+      filterOptions: [
+        { value: 'in', label: 'Cash In' },
+        { value: 'out', label: 'Cash Out' }
+      ],
+      render: (payment) => (
+        <Badge tone={payment.direction === 'out' ? 'danger' : 'success'}>
+          {payment.direction === 'out' ? 'Cash Out' : 'Cash In'}
+        </Badge>
+      )
+    },
+    { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${formatCurrency(payment.amount)}` },
     { key: 'date', label: 'Date', accessor: (payment) => new Date(payment.date).getTime(), render: (payment) => formatDate(payment.date) },
     { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
   ];
@@ -810,6 +841,7 @@ const Transactions = () => {
           emptyIcon={<TransactionsIcon width={22} height={22} />}
           emptyTitle="No transactions found"
           emptyDescription="Payments across rent, utilities, maintenance, and deposits will show up here."
+          loading={dataLoading}
         />
       )}
 
@@ -822,6 +854,7 @@ const Transactions = () => {
           emptyIcon={<TransactionsIcon width={22} height={22} />}
           emptyTitle="No rent records found"
           emptyDescription="Rent records for the selected property and filters will appear here."
+          loading={dataLoading}
         />
       )}
 
@@ -834,6 +867,7 @@ const Transactions = () => {
           emptyIcon={<TransactionsIcon width={22} height={22} />}
           emptyTitle="No electricity bills found"
           emptyDescription="Bills generated from meter readings will appear here."
+          loading={dataLoading}
         />
       )}
 
@@ -869,6 +903,7 @@ const Transactions = () => {
               emptyIcon={<TransactionsIcon width={22} height={22} />}
               emptyTitle="No maintenance collected found"
               emptyDescription="Maintenance payments collected from tenants will appear here."
+              loading={dataLoading}
             />
           ) : (
             <SortableTable
@@ -879,6 +914,7 @@ const Transactions = () => {
               emptyIcon={<TransactionsIcon width={22} height={22} />}
               emptyTitle="No maintenance spent found"
               emptyDescription="Maintenance expenses logged for this property will appear here."
+              loading={dataLoading}
             />
           )}
         </div>
@@ -893,6 +929,7 @@ const Transactions = () => {
           emptyIcon={<TransactionsIcon width={22} height={22} />}
           emptyTitle="No deposit activity found"
           emptyDescription="Deposit collections and refunds will appear here."
+          loading={dataLoading}
         />
       )}
 
@@ -905,6 +942,7 @@ const Transactions = () => {
           emptyIcon={<TransactionsIcon width={22} height={22} />}
           emptyTitle="No other transactions found"
           emptyDescription="Miscellaneous income and refunds will appear here."
+          loading={dataLoading}
         />
       )}
 
@@ -993,7 +1031,7 @@ const Transactions = () => {
                       required
                     />
                     <div className="mt-1 text-xs text-[var(--muted)]">
-                      Remaining for {formatMonthKey(rentForm.month)}: ₹{rentRemainingAmount}
+                      Remaining for {formatMonthKey(rentForm.month)}: ₹{formatCurrency(rentRemainingAmount)}
                     </div>
                   </div>
                   <div>
@@ -1050,7 +1088,7 @@ const Transactions = () => {
                       required
                     />
                     <div className="mt-1 text-xs text-[var(--muted)]">
-                      Amount due for {formatMonthKey(electricityForm.month)}: ₹{electricityAmountPreview}
+                      Amount due for {formatMonthKey(electricityForm.month)}: ₹{formatCurrency(electricityAmountPreview)}
                     </div>
                   </div>
                   <div>
@@ -1165,7 +1203,7 @@ const Transactions = () => {
                       required
                     />
                     <div className="mt-1 text-xs text-[var(--muted)]">
-                      {depositForm.type === 'refund' ? 'Refundable deposit' : 'Remaining deposit'}: ₹{depositRemainingAmount}
+                      {depositForm.type === 'refund' ? 'Refundable deposit' : 'Remaining deposit'}: ₹{formatCurrency(depositRemainingAmount)}
                     </div>
                   </div>
                   <div>
@@ -1192,6 +1230,17 @@ const Transactions = () => {
 
               {addType === 'others' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-[var(--muted)]">Direction</label>
+                    <select
+                      className="w-full px-3 py-2 mt-1"
+                      value={otherForm.direction}
+                      onChange={(e) => setOtherForm((prev) => ({ ...prev, direction: e.target.value as 'in' | 'out' }))}
+                    >
+                      <option value="in">Cash In (income received)</option>
+                      <option value="out">Cash Out (expense paid)</option>
+                    </select>
+                  </div>
                   <div>
                     <label className="text-xs text-[var(--muted)]">Amount</label>
                     <input

@@ -1,3 +1,4 @@
+import { Types, type PipelineStage } from 'mongoose';
 import { asyncHandler } from '../utils/asyncHandler';
 import { HttpError } from '../utils/httpError';
 import { Tenant } from '../models/Tenant';
@@ -7,6 +8,8 @@ import { RentRecord } from '../models/RentRecord';
 import { ensureBase64OrThrow } from '../utils/base64';
 import { getAutoMaintenanceUntil, syncUnitStatus } from '../services/unitStatusService';
 import { requireString } from '../utils/request';
+import { emitPortfolioEvent } from '../ws/emit';
+import { buildPaginatedResult, buildSearchRegexStage, isPaginatedRequest, parseListQuery, runPaginatedAggregate } from '../utils/listQuery';
 
 const getTenantDepositHeld = async (propertyId: string, tenantId: string) => {
   const payments = await Payment.find({
@@ -34,8 +37,50 @@ export const listTenants = asyncHandler(async (req, res) => {
     query.isActive = true;
   }
 
-  const tenants = await Tenant.find(query).sort({ createdAt: -1 }).populate('assignedUnit', 'unitNumber');
-  res.json(tenants);
+  const listParams = parseListQuery(req.query);
+
+  if (!isPaginatedRequest(listParams)) {
+    const tenants = await Tenant.find(query).sort({ createdAt: -1 }).populate('assignedUnit', 'unitNumber');
+    res.json(tenants);
+    return;
+  }
+
+  const matchStage: Record<string, unknown> = { propertyId: new Types.ObjectId(propertyId) };
+  if (query.isActive != null) matchStage.isActive = query.isActive;
+
+  const pipeline: PipelineStage[] = [
+    { $match: matchStage },
+    {
+      $lookup: {
+        from: 'units',
+        localField: 'assignedUnit',
+        foreignField: '_id',
+        as: 'assignedUnit'
+      }
+    },
+    { $unwind: { path: '$assignedUnit', preserveNullAndEmptyArrays: true } },
+    {
+      $addFields: {
+        assignedUnit: { _id: '$assignedUnit._id', unitNumber: '$assignedUnit.unitNumber' }
+      }
+    }
+  ];
+
+  const searchStage = buildSearchRegexStage(['fullName', 'phone', 'email', 'assignedUnit.unitNumber'], listParams.search);
+  if (searchStage) pipeline.push({ $match: searchStage });
+
+  const sortFieldMap: Record<string, string> = {
+    fullName: 'fullName',
+    phone: 'phone',
+    unit: 'assignedUnit.unitNumber',
+    movedInDate: 'movedInDate'
+  };
+  const sortField = sortFieldMap[listParams.sortKey || ''] || 'createdAt';
+  const sortDirection = listParams.sortDir === 'desc' ? -1 : 1;
+  pipeline.push({ $sort: { [sortField]: sortDirection, _id: 1 } });
+
+  const { data, total } = await runPaginatedAggregate(Tenant, pipeline, listParams);
+  res.json(buildPaginatedResult(data, total, listParams));
 });
 
 export const getTenant = asyncHandler(async (req, res) => {
@@ -107,7 +152,8 @@ export const createTenant = asyncHandler(async (req, res) => {
     assignedUnit: unit._id,
     photoBase64,
     documents,
-    isActive: true
+    isActive: true,
+    movedInDate: new Date()
   });
 
   unit.currentTenant = tenant._id;
@@ -129,6 +175,9 @@ export const createTenant = asyncHandler(async (req, res) => {
     });
   }
 
+  emitPortfolioEvent(req, { resource: 'tenant', action: 'create', id: String(tenant._id), data: tenant });
+  emitPortfolioEvent(req, { resource: 'unit', action: 'update', id: String(unit._id), data: unit });
+
   res.status(201).json(tenant);
 });
 
@@ -146,6 +195,8 @@ export const updateTenant = asyncHandler(async (req, res) => {
 
   Object.assign(tenant, req.body);
   await tenant.save();
+
+  emitPortfolioEvent(req, { resource: 'tenant', action: 'update', id: String(tenant._id), data: tenant });
 
   res.json(tenant);
 });
@@ -182,6 +233,11 @@ export const moveOutTenant = asyncHandler(async (req, res) => {
       sourceType: 'tenant',
       sourceId: tenant._id
     });
+  }
+
+  emitPortfolioEvent(req, { resource: 'tenant', action: 'moveOut', id: String(tenant._id), data: tenant });
+  if (unit) {
+    emitPortfolioEvent(req, { resource: 'unit', action: 'update', id: String(unit._id), data: unit });
   }
 
   res.json({ message: 'Tenant moved out', tenant });
@@ -226,6 +282,7 @@ export const reactivateTenant = asyncHandler(async (req, res) => {
   tenant.rentAmount = unit.monthlyRent;
   tenant.depositAmount = unit.deposit;
   tenant.isActive = true;
+  tenant.movedInDate = new Date();
   tenant.movedOutDate = undefined;
 
   if (fullName) tenant.fullName = fullName;
@@ -255,6 +312,9 @@ export const reactivateTenant = asyncHandler(async (req, res) => {
       sourceId: tenant._id
     });
   }
+
+  emitPortfolioEvent(req, { resource: 'tenant', action: 'reactivate', id: String(tenant._id), data: tenant });
+  emitPortfolioEvent(req, { resource: 'unit', action: 'update', id: String(unit._id), data: unit });
 
   res.json({ message: 'Tenant reactivated', tenant });
 });

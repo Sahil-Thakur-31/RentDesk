@@ -2,6 +2,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { HttpError } from '../utils/httpError';
 import { Payment } from '../models/Payment';
 import { optionalString, requireString } from '../utils/request';
+import { emitPortfolioEvent } from '../ws/emit';
 
 export const listPayments = asyncHandler(async (req, res) => {
   const propertyId = requireString(req.params.propertyId, 'propertyId');
@@ -26,7 +27,7 @@ export const listPayments = asyncHandler(async (req, res) => {
 
 export const createPayment = asyncHandler(async (req, res) => {
   const propertyId = requireString(req.params.propertyId, 'propertyId');
-  const { type, amount, date, unitId, tenantId, notes } = req.body;
+  const { type, amount, date, unitId, tenantId, notes, direction } = req.body;
   if (!type || amount == null || !date) {
     throw new HttpError(400, 'type, amount and date are required');
   }
@@ -39,8 +40,11 @@ export const createPayment = asyncHandler(async (req, res) => {
     unitId,
     tenantId,
     notes,
+    direction: type === 'other' || type === 'maintenance' ? (direction === 'out' ? 'out' : 'in') : undefined,
     sourceType: 'manual'
   });
+
+  emitPortfolioEvent(req, { resource: 'payment', action: 'create', id: String(payment._id), data: payment });
 
   res.status(201).json(payment);
 });

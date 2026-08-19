@@ -412,3 +412,22 @@
 .confirm-dialog-leave {
   animation: confirm-zoom-out 180ms ease-in forwards;
 }
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -320px 0;
+  }
+  100% {
+    background-position: 320px 0;
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--surface-2);
+  background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  background-size: 320px 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}

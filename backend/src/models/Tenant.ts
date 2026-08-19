@@ -20,6 +20,7 @@ export interface ITenant {
   photoBase64?: string;
   documents?: TenantDocuments;
   isActive: boolean;
+  movedInDate?: Date;
   movedOutDate?: Date;
 }
 
@@ -44,6 +45,7 @@ const tenantSchema = new Schema<ITenant>(
       policeVerificationBase64: { type: String }
     },
     isActive: { type: Boolean, default: true },
+    movedInDate: { type: Date },
     movedOutDate: { type: Date }
   },
   { timestamps: true }

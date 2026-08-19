@@ -23,13 +23,14 @@ import Utilities from './pages/Utilities';
 import ElectricityReadings from './pages/ElectricityReadings';
 import api from './lib/api';
 import { appStorage } from './lib/appStorage';
-import { preloadUserData } from './lib/offlineBootstrap';
+import { connectRealtime } from './lib/realtimeSocket';
+import { invalidateAll } from './lib/queryCache';
 import PortfolioOnboarding from './components/PortfolioOnboarding';
 import ToastViewport from './components/ToastViewport';
 import ConfirmDialogHost from './components/ConfirmDialogHost';
 import { I18nProvider, useI18n } from './lib/i18n';
 
-type AuthStatus = 'checking' | 'needs-portfolio' | 'hydrating' | 'authenticated' | 'unauthenticated';
+type AuthStatus = 'checking' | 'needs-portfolio' | 'authenticated' | 'unauthenticated';
 const SESSION_SNAPSHOT_KEY = 'rentdesk_session_snapshot_v1';
 
 const loadSessionSnapshot = () => {
@@ -91,9 +92,8 @@ const RequireAuth = ({ children }: { children: ReactElement }) => {
         return;
       }
 
-      setStatus('hydrating');
-      await preloadUserData(api);
       setStatus('authenticated');
+      connectRealtime();
     } catch (error: any) {
       const statusCode = Number(error?.response?.status || 0);
       const isUnauthorized = statusCode === 401;
@@ -114,6 +114,7 @@ const RequireAuth = ({ children }: { children: ReactElement }) => {
         }
         if ((fallbackSnapshot.portfolios || []).length) {
           setStatus('authenticated');
+          connectRealtime();
         } else {
           setStatus('needs-portfolio');
         }
@@ -139,13 +140,13 @@ const RequireAuth = ({ children }: { children: ReactElement }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (status === 'checking' || status === 'hydrating') {
+  if (status === 'checking') {
     return (
       <div className="h-screen flex flex-col items-center justify-center gap-4 bg-[var(--bg)] text-sm text-[var(--muted)]">
         <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] text-white flex items-center justify-center font-semibold shadow-[0_10px_20px_rgba(15,118,110,0.3)] animate-pulse">
           RD
         </div>
-        {status === 'checking' ? t('Checking session...') : t('Preparing local data...')}
+        {t('Checking session...')}
       </div>
     );
   }

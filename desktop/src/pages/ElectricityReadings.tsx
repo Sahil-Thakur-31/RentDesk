@@ -4,8 +4,9 @@ import PropertyPicker from '../components/PropertyPicker';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
 import { UnitsIcon } from '../components/icons';
 import { shiftMonthValue } from '../lib/dateFormat';
-import { useDataVersion } from '../lib/dataSync';
+import { cachedGet, invalidateByTag, isCached, useCachedQuery } from '../lib/queryCache';
 import { toast } from '../lib/toast';
+import { formatCurrency } from '../lib/format';
 
 type ReadingRow = {
   propertyId: string;
@@ -40,36 +41,35 @@ const mapRow = (row: any): ReadingRow => ({
 });
 
 const ElectricityReadings = () => {
-  const [properties, setProperties] = useState<any[]>([]);
+  const { data: propertiesData, loading: propertiesLoading } = useCachedQuery<any[]>('/properties');
+  const properties = propertiesData || [];
   const [propertyId, setPropertyId] = useState('');
   const [rows, setRows] = useState<ReadingRow[]>([]);
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(false);
-  const dataVersion = useDataVersion();
+  const [rowsLoading, setRowsLoading] = useState(true);
 
-  useEffect(() => {
-    const load = async () => {
-      const response = await api.get('/properties');
-      const list = response.data || [];
-      setProperties(list);
-    };
-    load();
-  }, [dataVersion]);
+  const loadRows = async (options?: { force?: boolean }) => {
+    const targets = propertyId ? [{ _id: propertyId }] : properties;
+    if (options?.force) {
+      targets.forEach((property) => invalidateByTag('utilityBill', property._id, month));
+    }
+    const allCached = targets.every((property) =>
+      isCached(`/properties/${property._id}/utility-bills/electricity-readings`, { month })
+    );
+    if (!allCached) setRowsLoading(true);
 
-  useEffect(() => {
-    const loadRows = async () => {
+    try {
       if (propertyId) {
-        const response = await api.get(
-          `/properties/${propertyId}/utility-bills/electricity-readings?month=${month}`
-        );
+        const data = await cachedGet(`/properties/${propertyId}/utility-bills/electricity-readings`, { month });
         setRows(
-          (response.data?.rows || []).map((row: any) =>
+          (data?.rows || []).map((row: any) =>
             mapRow({
               ...row,
               propertyId,
               propertyName: properties.find((property) => property._id === propertyId)?.name || 'Property',
-              electricityUnitRate: response.data?.rates?.electricityUnitRate || 0,
-              commonElectricityCharge: response.data?.rates?.commonElectricityCharge || 0
+              electricityUnitRate: data?.rates?.electricityUnitRate || 0,
+              commonElectricityCharge: data?.rates?.commonElectricityCharge || 0
             })
           )
         );
@@ -83,27 +83,41 @@ const ElectricityReadings = () => {
 
       const responses = await Promise.all(
         properties.map((property) =>
-          api.get(`/properties/${property._id}/utility-bills/electricity-readings?month=${month}`)
+          cachedGet(`/properties/${property._id}/utility-bills/electricity-readings`, { month })
         )
       );
 
       setRows(
-        responses.flatMap((response, index) =>
-          (response.data?.rows || []).map((row: any) =>
+        responses.flatMap((data, index) =>
+          (data?.rows || []).map((row: any) =>
             mapRow({
               ...row,
               propertyId: properties[index]._id,
               propertyName: properties[index].name,
-              electricityUnitRate: response.data?.rates?.electricityUnitRate || 0,
-              commonElectricityCharge: response.data?.rates?.commonElectricityCharge || 0
+              electricityUnitRate: data?.rates?.electricityUnitRate || 0,
+              commonElectricityCharge: data?.rates?.commonElectricityCharge || 0
             })
           )
         )
       );
-    };
+    } finally {
+      setRowsLoading(false);
+    }
+  };
 
+  const scopeKey = `${propertyId}::${month}`;
+  const [renderedScopeKey, setRenderedScopeKey] = useState(scopeKey);
+  if (scopeKey !== renderedScopeKey) {
+    setRenderedScopeKey(scopeKey);
+    setRows([]);
+    setRowsLoading(true);
+  }
+
+  useEffect(() => {
+    if (propertiesLoading) return;
     loadRows();
-  }, [propertyId, month, properties, dataVersion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId, month, properties.length, propertiesLoading]);
 
   const updateReading = (unitId: string, value: string) => {
     setRows((prev) =>
@@ -171,41 +185,7 @@ const ElectricityReadings = () => {
         )
       );
 
-      if (propertyId) {
-        const refreshed = await api.get(
-          `/properties/${propertyId}/utility-bills/electricity-readings?month=${month}`
-        );
-        setRows(
-          (refreshed.data?.rows || []).map((row: any) =>
-            mapRow({
-              ...row,
-              propertyId,
-              propertyName: properties.find((property) => property._id === propertyId)?.name || 'Property',
-              electricityUnitRate: refreshed.data?.rates?.electricityUnitRate || 0,
-              commonElectricityCharge: refreshed.data?.rates?.commonElectricityCharge || 0
-            })
-          )
-        );
-      } else {
-        const responses = await Promise.all(
-          properties.map((property) =>
-            api.get(`/properties/${property._id}/utility-bills/electricity-readings?month=${month}`)
-          )
-        );
-        setRows(
-          responses.flatMap((response, index) =>
-            (response.data?.rows || []).map((row: any) =>
-              mapRow({
-                ...row,
-                propertyId: properties[index]._id,
-                propertyName: properties[index].name,
-                electricityUnitRate: response.data?.rates?.electricityUnitRate || 0,
-                commonElectricityCharge: response.data?.rates?.commonElectricityCharge || 0
-              })
-            )
-          )
-        );
-      }
+      await loadRows({ force: true });
       toast.success('Readings saved.');
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Failed to save readings.');
@@ -244,7 +224,7 @@ const ElectricityReadings = () => {
       )
     },
     { key: 'calculatedUnits', label: 'Units Used', accessor: (row) => row.calculatedUnits },
-    { key: 'calculatedAmount', label: 'Amount', accessor: (row) => row.calculatedAmount, render: (row) => `₹${row.calculatedAmount}` }
+    { key: 'calculatedAmount', label: 'Amount', accessor: (row) => row.calculatedAmount, render: (row) => `₹${formatCurrency(row.calculatedAmount)}` }
   ];
 
   return (
@@ -292,6 +272,7 @@ const ElectricityReadings = () => {
         emptyIcon={<UnitsIcon width={22} height={22} />}
         emptyTitle="No units found"
         emptyDescription="Add units to this property to record meter readings."
+        loading={rowsLoading}
       />
 
       <div className="text-xs text-[var(--muted)]">

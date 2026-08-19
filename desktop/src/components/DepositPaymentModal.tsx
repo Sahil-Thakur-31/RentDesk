@@ -3,6 +3,7 @@ import api from '../lib/api';
 import { CloseIcon } from './icons';
 import { getCurrentDateValue } from '../lib/dateFormat';
 import { toast } from '../lib/toast';
+import { formatCurrency } from '../lib/format';
 
 type DepositPaymentModalProps = {
   open: boolean;
@@ -90,15 +91,15 @@ const DepositPaymentModal = ({
         <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
           <div className="rounded-2xl bg-black/5 px-4 py-3">
             <div className="text-xs text-[var(--muted)]">Required</div>
-            <div className="font-semibold">{`₹${requiredDeposit}`}</div>
+            <div className="font-semibold">{`₹${formatCurrency(requiredDeposit)}`}</div>
           </div>
           <div className="rounded-2xl bg-black/5 px-4 py-3">
             <div className="text-xs text-[var(--muted)]">Paid</div>
-            <div className="font-semibold">{`₹${paidDeposit}`}</div>
+            <div className="font-semibold">{`₹${formatCurrency(paidDeposit)}`}</div>
           </div>
           <div className="rounded-2xl bg-black/5 px-4 py-3">
             <div className="text-xs text-[var(--muted)]">Remaining</div>
-            <div className="font-semibold">{`₹${remaining}`}</div>
+            <div className="font-semibold">{`₹${formatCurrency(remaining)}`}</div>
           </div>
         </div>
 

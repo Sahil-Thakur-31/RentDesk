@@ -1,6 +1,7 @@
 import { HydratedDocument, Schema, Types, model } from 'mongoose';
 
 export type PaymentType = 'rent' | 'deposit' | 'maintenance' | 'utility' | 'refund' | 'other';
+export type PaymentDirection = 'in' | 'out';
 
 export interface IPayment {
   type: PaymentType;
@@ -12,6 +13,8 @@ export interface IPayment {
   notes?: string;
   sourceType?: string;
   sourceId?: Types.ObjectId;
+  /** Only meaningful for types 'other' and 'maintenance' — rent/utility/deposit always flow in and refund always flows out. Defaults to 'in'. */
+  direction?: PaymentDirection;
 }
 
 export type IPaymentDocument = HydratedDocument<IPayment>;
@@ -26,7 +29,8 @@ const paymentSchema = new Schema<IPayment>(
     tenantId: { type: Schema.Types.ObjectId, ref: 'Tenant' },
     notes: { type: String },
     sourceType: { type: String },
-    sourceId: { type: Schema.Types.ObjectId }
+    sourceId: { type: Schema.Types.ObjectId },
+    direction: { type: String, enum: ['in', 'out'], default: 'in' }
   },
   { timestamps: true }
 );

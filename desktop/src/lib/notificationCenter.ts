@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import api from './api';
-import { useDataVersion } from './dataSync';
+import { cachedGet } from './queryCache';
 
 export type NotificationItem = {
   id: string;
@@ -26,7 +25,6 @@ const relativeTime = (dateValue: string | Date) => {
 };
 
 export const useNotificationsFeed = () => {
-  const dataVersion = useDataVersion();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -36,9 +34,9 @@ export const useNotificationsFeed = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const portfolioRes = await api.get('/portfolio');
-        const portfolio = portfolioRes.data?.portfolio;
-        const properties = portfolioRes.data?.properties || [];
+        const portfolioData = await cachedGet('/portfolio');
+        const portfolio = portfolioData?.portfolio;
+        const properties = portfolioData?.properties || [];
         if (!portfolio || !properties.length) {
           if (active) setItems([]);
           return;
@@ -54,20 +52,20 @@ export const useNotificationsFeed = () => {
 
         const buckets = await Promise.all(
           properties.map(async (property: any) => {
-            const [rentRes, utilityRes, tenantRes, paymentRes, maintenanceRes] = await Promise.all([
-              api.get(`/properties/${property._id}/rent-records?month=${month}&year=${year}&status=unpaid,partial,paid`),
-              api.get(`/properties/${property._id}/utility-bills?month=${currentMonth}&status=unpaid,partial,paid`),
-              api.get(`/properties/${property._id}/tenants?status=active`),
-              api.get(`/properties/${property._id}/payments?startDate=${start}&endDate=${end}`),
-              api.get(`/properties/${property._id}/maintenance`)
+            const [rentData, utilityData, tenantData, paymentData, maintenanceData] = await Promise.all([
+              cachedGet(`/properties/${property._id}/rent-records`, { month, year, status: 'unpaid,partial,paid' }),
+              cachedGet(`/properties/${property._id}/utility-bills`, { month: currentMonth, status: 'unpaid,partial,paid' }),
+              cachedGet(`/properties/${property._id}/tenants`, { status: 'active' }),
+              cachedGet(`/properties/${property._id}/payments`, { startDate: start, endDate: end }),
+              cachedGet(`/properties/${property._id}/maintenance`)
             ]);
 
             const next: NotificationItem[] = [];
-            const payments = paymentRes.data || [];
-            const rentRecords = rentRes.data || [];
-            const utilityBills = utilityRes.data || [];
-            const activeTenants = tenantRes.data || [];
-            const maintenanceExpenses = (maintenanceRes.data || []).filter((item: any) => {
+            const payments = paymentData || [];
+            const rentRecords = rentData || [];
+            const utilityBills = utilityData || [];
+            const activeTenants = tenantData || [];
+            const maintenanceExpenses = (maintenanceData || []).filter((item: any) => {
               const recordDate = new Date(item.date);
               return recordDate >= new Date(start) && recordDate <= new Date(end);
             });
@@ -180,7 +178,7 @@ export const useNotificationsFeed = () => {
     return () => {
       active = false;
     };
-  }, [dataVersion]);
+  }, []);
 
   return useMemo(() => ({ notifications: items, loading }), [items, loading]);
 };

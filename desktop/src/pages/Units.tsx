@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
-import { useDataVersion } from '../lib/dataSync';
+import { cachedGet, invalidateByTag, isCached, useCachedQuery } from '../lib/queryCache';
 import Badge, { type BadgeTone } from '../components/Badge';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
 import { CloseIcon, UnitsIcon } from '../components/icons';
 import { toast } from '../lib/toast';
 import { confirmDialog } from '../lib/confirmDialog';
+import { formatCurrency } from '../lib/format';
 
 const unitTypeLabels: Record<string, string> = {
   single_room: 'Single Room',
@@ -35,14 +36,26 @@ const unitStatusTone = (status: string): BadgeTone => {
 
 const Units = () => {
   const navigate = useNavigate();
-  const [properties, setProperties] = useState<any[]>([]);
+  const { data: propertiesData, loading: propertiesLoading } = useCachedQuery<any[]>('/properties');
+  const properties = propertiesData || [];
   const [propertyId, setPropertyId] = useState('');
   const [units, setUnits] = useState<any[]>([]);
+  const [unitsTotal, setUnitsTotal] = useState(0);
   const [tab, setTab] = useState<'active' | 'deleted'>('active');
   const [showAdd, setShowAdd] = useState(false);
   const [formPropertyId, setFormPropertyId] = useState('');
   const [loading, setLoading] = useState(false);
-  const dataVersion = useDataVersion();
+  const [unitsLoading, setUnitsLoading] = useState(true);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+
+  const isServerMode = Boolean(propertyId);
+
   const [unitForm, setUnitForm] = useState({
     unitNumber: '',
     unitType: '1bhk',
@@ -53,48 +66,87 @@ const Units = () => {
     lastMeterReading: ''
   });
 
-  useEffect(() => {
-    const load = async () => {
-      const response = await api.get('/properties');
-      const list = response.data || [];
-      setProperties(list);
-    };
-    load();
-  }, [dataVersion]);
+  const loadUnits = async (targetPropertyId: string, targetTab: 'active' | 'deleted', options?: { force?: boolean }) => {
+    const archived = targetTab === 'deleted';
+    const targets = targetPropertyId
+      ? [{ _id: targetPropertyId, name: '' }]
+      : properties;
 
-  const loadUnits = async (targetPropertyId: string, targetTab: 'active' | 'deleted') => {
+    if (options?.force) {
+      if (targetPropertyId) {
+        invalidateByTag('unit', targetPropertyId);
+      } else {
+        properties.forEach((property) => invalidateByTag('unit', property._id));
+      }
+    }
+
     if (targetPropertyId) {
-      const response = await api.get(
-        `/properties/${targetPropertyId}/units?archived=${targetTab === 'deleted'}`
+      const params = {
+        archived,
+        page,
+        limit: pageSize,
+        search: search || undefined,
+        sortKey: sortKey || undefined,
+        sortDir,
+        unitStatus: columnFilters.status || undefined
+      };
+      if (!isCached(`/properties/${targetPropertyId}/units`, params)) setUnitsLoading(true);
+      try {
+        const result = await cachedGet(`/properties/${targetPropertyId}/units`, params);
+        setUnits(result?.data || []);
+        setUnitsTotal(result?.total || 0);
+      } finally {
+        setUnitsLoading(false);
+      }
+      return;
+    }
+
+    const allCached = targets.every((property) => isCached(`/properties/${property._id}/units`, { archived }));
+    if (!allCached) setUnitsLoading(true);
+
+    try {
+      if (!properties.length) {
+        setUnits([]);
+        setUnitsTotal(0);
+        return;
+      }
+
+      const responses = await Promise.all(
+        properties.map((property) => cachedGet(`/properties/${property._id}/units`, { archived }))
       );
-      setUnits(response.data);
-      return;
-    }
-
-    if (!properties.length) {
-      setUnits([]);
-      return;
-    }
-
-    const responses = await Promise.all(
-      properties.map((property) =>
-        api.get(`/properties/${property._id}/units?archived=${targetTab === 'deleted'}`)
-      )
-    );
-    setUnits(
-      responses.flatMap((response, index) =>
-        (response.data || []).map((unit: any) => ({
+      const merged = responses.flatMap((data, index) =>
+        (data || []).map((unit: any) => ({
           ...unit,
           _propertyId: properties[index]._id,
           _propertyName: properties[index].name
         }))
-      )
-    );
+      );
+      setUnits(merged);
+      setUnitsTotal(merged.length);
+    } finally {
+      setUnitsLoading(false);
+    }
   };
 
+  const scopeKey = `${propertyId}::${tab}`;
+  const [renderedScopeKey, setRenderedScopeKey] = useState(scopeKey);
+  if (scopeKey !== renderedScopeKey) {
+    setRenderedScopeKey(scopeKey);
+    setUnits([]);
+    setUnitsTotal(0);
+    setUnitsLoading(true);
+    setPage(1);
+    setSearch('');
+    setSortKey(null);
+    setSortDir('asc');
+    setColumnFilters({});
+  }
+
   useEffect(() => {
+    if (propertiesLoading) return;
     loadUnits(propertyId, tab);
-  }, [propertyId, tab, properties, dataVersion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId, tab, properties.length, propertiesLoading, page, pageSize, search, sortKey, sortDir, columnFilters]);
 
   const updateUnitField = (key: string, value: string) => {
     setUnitForm((prev) => ({ ...prev, [key]: value }));
@@ -117,7 +169,7 @@ const Units = () => {
         deposit: Number(unitForm.deposit),
         lastMeterReading: unitForm.lastMeterReading ? Number(unitForm.lastMeterReading) : undefined
       });
-      await loadUnits(propertyId, 'active');
+      await loadUnits(propertyId, 'active', { force: true });
       setTab('active');
       setUnitForm({
         unitNumber: '',
@@ -141,20 +193,21 @@ const Units = () => {
     {
       key: 'property',
       label: 'Property',
+      sortable: false,
       accessor: (unit) => unit._propertyName || properties.find((property) => property._id === propertyId)?.name || '-'
     },
     { key: 'unitNumber', label: 'Unit', accessor: (unit) => unit.unitNumber },
     { key: 'floor', label: 'Floor', accessor: (unit) => unit.floor || '-' },
     { key: 'meterReading', label: 'Meter Reading', accessor: (unit) => unit.lastMeterReading ?? 0 },
-    { key: 'rent', label: 'Rent', accessor: (unit) => unit.monthlyRent, render: (unit) => `₹${unit.monthlyRent}` },
+    { key: 'rent', label: 'Rent', accessor: (unit) => unit.monthlyRent, render: (unit) => `₹${formatCurrency(unit.monthlyRent)}` },
     {
       key: 'status',
       label: 'Status',
-      accessor: (unit) => formatUnitStatus(unit.status),
+      accessor: (unit) => unit.status,
       filterOptions: [
-        { value: 'Occupied', label: 'Occupied' },
-        { value: 'Vacant', label: 'Vacant' },
-        { value: 'Under Repair', label: 'Under Repair' }
+        { value: 'occupied', label: 'Occupied' },
+        { value: 'vacant', label: 'Vacant' },
+        { value: 'maintenance', label: 'Under Repair' }
       ],
       render: (unit) => <Badge tone={unitStatusTone(unit.status)}>{formatUnitStatus(unit.status)}</Badge>
     },
@@ -173,7 +226,13 @@ const Units = () => {
           {tab === 'active' ? (
             <button
               className="btn btn-sm btn-danger"
+              disabled={Boolean(unit.currentTenant)}
+              title={unit.currentTenant ? 'Move the tenant out before deactivating this unit.' : undefined}
               onClick={async () => {
+                if (unit.currentTenant) {
+                  toast.error('Cannot deactivate a unit with an active tenant. Move the tenant out first.');
+                  return;
+                }
                 const ok = await confirmDialog({
                   title: `Mark unit "${unit.unitNumber}" as inactive?`,
                   description: 'This will hide it from active lists. You can restore it from the Inactive tab.',
@@ -184,7 +243,7 @@ const Units = () => {
                 try {
                   const targetPropertyId = unit._propertyId || propertyId;
                   await api.delete(`/properties/${targetPropertyId}/units/${unit._id}`);
-                  await loadUnits(propertyId, 'active');
+                  await loadUnits(propertyId, 'active', { force: true });
                   toast.success('Unit marked inactive.');
                 } catch (err: any) {
                   toast.error(err?.response?.data?.message || 'Failed to update unit.');
@@ -197,11 +256,17 @@ const Units = () => {
             <button
               className="btn btn-sm btn-success"
               onClick={async () => {
+                const ok = await confirmDialog({
+                  title: `Restore unit "${unit.unitNumber}"?`,
+                  description: 'If this unit\'s property is currently inactive, restoring this unit will also restore the property.',
+                  confirmLabel: 'Restore'
+                });
+                if (!ok) return;
                 try {
                   const targetPropertyId = unit._propertyId || propertyId;
-                  await api.patch(`/properties/${targetPropertyId}/units/${unit._id}/restore`);
-                  await loadUnits(propertyId, 'deleted');
-                  toast.success('Unit restored.');
+                  const response = await api.patch(`/properties/${targetPropertyId}/units/${unit._id}/restore`);
+                  await loadUnits(propertyId, 'deleted', { force: true });
+                  toast.success(response.data?.propertyRestored ? 'Unit restored — its property was also restored.' : 'Unit restored.');
                 } catch (err: any) {
                   toast.error(err?.response?.data?.message || 'Failed to restore unit.');
                 }
@@ -263,6 +328,38 @@ const Units = () => {
         emptyIcon={<UnitsIcon width={22} height={22} />}
         emptyTitle={tab === 'active' ? 'No active units found' : 'No inactive units found'}
         emptyDescription={tab === 'active' ? 'Add a unit to this property to start tracking rent and occupancy.' : 'Units you deactivate will show up here.'}
+        loading={unitsLoading}
+        server={
+          isServerMode
+            ? {
+                page,
+                pageSize,
+                total: unitsTotal,
+                search,
+                onSearchChange: (value) => {
+                  setSearch(value);
+                  setPage(1);
+                },
+                sortKey,
+                sortDir,
+                onSortChange: (key, dir) => {
+                  setSortKey(key);
+                  setSortDir(dir);
+                  setPage(1);
+                },
+                columnFilters,
+                onColumnFiltersChange: (filters) => {
+                  setColumnFilters(filters);
+                  setPage(1);
+                },
+                onPageChange: setPage,
+                onPageSizeChange: (size) => {
+                  setPageSize(size);
+                  setPage(1);
+                }
+              }
+            : undefined
+        }
       />
 
       {showAdd && (
@@ -326,10 +423,10 @@ const Units = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-[var(--muted)]">Size (Optional)</label>
+                  <label className="text-xs text-[var(--muted)]">Size in sq ft (Optional)</label>
                   <input
                     className="w-full px-3 py-2 mt-1"
-                    placeholder="Size"
+                    placeholder="e.g. 850"
                     value={unitForm.size}
                     onChange={(e) => updateUnitField('size', e.target.value)}
                   />

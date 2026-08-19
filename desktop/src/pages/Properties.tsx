@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
-import { useDataVersion } from '../lib/dataSync';
+import { cachedGet, invalidateByTag, isCached } from '../lib/queryCache';
 import Badge, { type BadgeTone } from '../components/Badge';
 import EmptyState from '../components/EmptyState';
+import { SkeletonCardGrid } from '../components/Skeleton';
 import { BuildingIcon, CloseIcon } from '../components/icons';
 import { toast } from '../lib/toast';
 import { confirmDialog } from '../lib/confirmDialog';
@@ -30,7 +31,7 @@ const Properties = () => {
   const [tab, setTab] = useState<'active' | 'deleted'>('active');
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(false);
-  const dataVersion = useDataVersion();
+  const [propertiesLoading, setPropertiesLoading] = useState(true);
   const [form, setForm] = useState({
     name: '',
     propertyType: 'building',
@@ -38,19 +39,35 @@ const Properties = () => {
     city: '',
     state: '',
     pincode: '',
+    size: '',
     notes: '',
     maintenanceCharge: '',
     electricityUnitRate: '',
     commonElectricityCharge: ''
   });
 
-  useEffect(() => {
-    loadProperties();
-  }, [tab, dataVersion]);
+  const [renderedTab, setRenderedTab] = useState(tab);
+  if (tab !== renderedTab) {
+    setRenderedTab(tab);
+    setProperties([]);
+    setPropertiesLoading(true);
+  }
 
-  const loadProperties = async () => {
-    const response = await api.get(`/properties?archived=${tab === 'deleted'}`);
-    setProperties(response.data);
+  useEffect(() => {
+    loadProperties(tab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  const loadProperties = async (targetTab: 'active' | 'deleted', options?: { force?: boolean }) => {
+    const params = { archived: targetTab === 'deleted' };
+    if (options?.force) invalidateByTag('property');
+    if (!isCached('/properties', params)) setPropertiesLoading(true);
+    try {
+      const data = await cachedGet('/properties', params);
+      setProperties(data || []);
+    } finally {
+      setPropertiesLoading(false);
+    }
   };
 
   const updateField = (key: string, value: string) => {
@@ -76,12 +93,13 @@ const Properties = () => {
         city: '',
         state: '',
         pincode: '',
+        size: '',
         notes: '',
         maintenanceCharge: '',
         electricityUnitRate: '',
         commonElectricityCharge: ''
       });
-      await loadProperties();
+      await loadProperties(tab, { force: true });
       toast.success('Property added.');
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Failed to add property.');
@@ -94,13 +112,14 @@ const Properties = () => {
     if (!propertyId) return;
     const ok = await confirmDialog({
       title: `Restore ${propertyName ? `"${propertyName}"` : 'this property'}?`,
+      description: 'Its units will stay inactive — restore any units you need individually from Units.',
       confirmLabel: 'Restore'
     });
     if (!ok) return;
     setLoading(true);
     try {
       await api.patch(`/properties/${propertyId}/restore`);
-      await loadProperties();
+      await loadProperties(tab, { force: true });
       toast.success('Property restored.');
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'Failed to restore property.');
@@ -117,6 +136,7 @@ const Properties = () => {
       city: '',
       state: '',
       pincode: '',
+      size: '',
       notes: '',
       maintenanceCharge: '',
       electricityUnitRate: '',
@@ -237,6 +257,15 @@ const Properties = () => {
                     required
                   />
                 </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)]">Size in sq ft (Optional)</label>
+                  <input
+                    className="w-full px-3 py-2 mt-1"
+                    placeholder="e.g. 1200"
+                    value={form.size}
+                    onChange={(e) => updateField('size', e.target.value)}
+                  />
+                </div>
                 <div className="md:col-span-2">
                   <label className="text-xs text-[var(--muted)]">Notes (Optional)</label>
                   <input
@@ -295,6 +324,9 @@ const Properties = () => {
         </div>
       )}
 
+      {propertiesLoading ? (
+        <SkeletonCardGrid count={4} />
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {properties.map((property) => (
           <div key={property._id} className="card p-5">
@@ -319,7 +351,7 @@ const Properties = () => {
                   onClick={async () => {
                     const ok = await confirmDialog({
                       title: `Mark ${property.name ? `"${property.name}"` : 'this property'} as inactive?`,
-                      description: 'This will hide it from active lists. You can restore it from the Inactive tab.',
+                      description: 'This will also deactivate all its units and hide it from active lists. Units with an active tenant must be vacated first — you can restore it later from the Inactive tab.',
                       confirmLabel: 'Deactivate',
                       danger: true
                     });
@@ -327,7 +359,7 @@ const Properties = () => {
                     setLoading(true);
                     try {
                       await api.delete(`/properties/${property._id}`);
-                      await loadProperties();
+                      await loadProperties(tab, { force: true });
                       toast.success('Property marked inactive.');
                     } catch (err: any) {
                       toast.error(err?.response?.data?.message || 'Failed to update property.');
@@ -360,6 +392,7 @@ const Properties = () => {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };

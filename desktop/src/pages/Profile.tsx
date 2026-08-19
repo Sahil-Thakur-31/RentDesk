@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { appStorage } from '../lib/appStorage';
-import { notifyDataChanged, useDataVersion } from '../lib/dataSync';
+import { cachedGet, invalidateAll, invalidateByTag } from '../lib/queryCache';
 import { useI18n } from '../lib/i18n';
 import Badge, { type BadgeTone } from '../components/Badge';
 import { CloseIcon } from '../components/icons';
@@ -166,7 +166,6 @@ const MemberEditorModal = ({
 
 const Profile = () => {
   const { t } = useI18n();
-  const dataVersion = useDataVersion();
   const [me, setMe] = useState<any>(null);
   const [portfolio, setPortfolio] = useState<any>(null);
   const [membership, setMembership] = useState<any>(null);
@@ -214,22 +213,23 @@ const Profile = () => {
     window.location.replace('/profile');
   };
 
-  const loadProfile = async () => {
+  const loadProfile = async (options?: { force?: boolean }) => {
+    if (options?.force) invalidateByTag('portfolio');
     setLoading(true);
     try {
-      const [meRes, portfolioRes, portfolioListRes] = await Promise.all([
-        api.get('/auth/me'),
-        api.get('/portfolio'),
-        api.get('/portfolio/list')
+      const [meData, portfolioData, portfolioListData] = await Promise.all([
+        cachedGet('/auth/me'),
+        cachedGet('/portfolio'),
+        cachedGet('/portfolio/list')
       ]);
-      const nextPortfolio = portfolioRes.data?.portfolio || null;
-      const nextProperties = portfolioRes.data?.properties || [];
-      const nextMembership = portfolioRes.data?.membership || null;
-      const nextPortfolios = portfolioListRes.data?.portfolios || [];
-      const nextActivePortfolioId = String(portfolioListRes.data?.activePortfolioId || nextPortfolio?._id || '');
+      const nextPortfolio = portfolioData?.portfolio || null;
+      const nextProperties = portfolioData?.properties || [];
+      const nextMembership = portfolioData?.membership || null;
+      const nextPortfolios = portfolioListData?.portfolios || [];
+      const nextActivePortfolioId = String(portfolioListData?.activePortfolioId || nextPortfolio?._id || '');
       const nextRoleOptions: AccessRole[] = nextMembership?.role === 'owner' ? ['manager', 'warden'] : ['manager'];
 
-      setMe(meRes.data?.user || null);
+      setMe(meData?.user || null);
       setPortfolio(nextPortfolio);
       setMembership(nextMembership);
       setProperties(nextProperties);
@@ -238,7 +238,7 @@ const Profile = () => {
       setInvitePropertyIds(nextProperties.map((property: any) => property._id));
       setInviteRole(nextRoleOptions[0] || 'manager');
       setNewPortfolioName(
-        nextPortfolio?.name || `${String(meRes.data?.user?.fullName || 'My').split(' ')[0] || 'My'} Portfolio`
+        nextPortfolio?.name || `${String(meData?.user?.fullName || 'My').split(' ')[0] || 'My'} Portfolio`
       );
       setDueDates({
         rentDueDay: String(nextPortfolio?.rentDueDay ?? 5),
@@ -267,7 +267,7 @@ const Profile = () => {
 
   useEffect(() => {
     void loadProfile();
-  }, [dataVersion]);
+  }, []);
 
   useEffect(() => {
     if (!canManageMembers || inviteQuery.trim().length < 2) {
@@ -374,7 +374,7 @@ const Profile = () => {
         role: inviteRole,
         propertyIds: invitePropertyIds
       });
-      await loadProfile();
+      await loadProfile({ force: true });
       setInviteQuery('');
       setSelectedInviteUser(null);
       setInviteResults([]);
@@ -397,7 +397,7 @@ const Profile = () => {
       } else {
         await api.post(`/portfolio/join-requests/${requestId}/reject`);
       }
-      await loadProfile();
+      await loadProfile({ force: true });
       toast.success(action === 'approve' ? t('Request approved.') : t('Request denied.'));
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t('Unable to update request right now.'));
@@ -416,7 +416,7 @@ const Profile = () => {
         maintenanceDueDay: Number(dueDates.maintenanceDueDay),
         reminderLeadDays: Number(dueDates.reminderLeadDays)
       });
-      await loadProfile();
+      await loadProfile({ force: true });
       toast.success(t('Due dates updated.'));
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t('Unable to update due dates.'));
@@ -429,7 +429,7 @@ const Profile = () => {
     setSaving(true);
     try {
       await api.delete(`/portfolio/members/${memberId}`);
-      await loadProfile();
+      await loadProfile({ force: true });
       toast.success(t('Member removed.'));
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t('Unable to remove member.'));
@@ -441,7 +441,7 @@ const Profile = () => {
   const handleUpdateMember = async (memberId: string, payload: { role: AccessRole; propertyIds: string[] }) => {
     try {
       await api.patch(`/portfolio/members/${memberId}`, payload);
-      await loadProfile();
+      await loadProfile({ force: true });
       toast.success(t('Member updated.'));
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t('Unable to update member.'));
@@ -471,7 +471,7 @@ const Profile = () => {
       } else {
         appStorage.removeItem('rentdesk_active_portfolio_id');
       }
-      notifyDataChanged();
+      invalidateAll();
       window.location.replace('/profile');
     } catch (err: any) {
       toast.error(err?.response?.data?.message || t('Unable to delete this portfolio.'));

@@ -3,9 +3,9 @@ import { dismissToast, subscribeToasts, getToastSnapshot, type ToastType } from 
 import { CheckCircleIcon, CloseIcon, InfoCircleIcon, XCircleIcon } from './icons';
 
 const toneStyles: Record<ToastType, { bg: string; border: string; icon: string; iconBg: string }> = {
-  success: { bg: 'bg-white', border: 'border-emerald-100', icon: 'text-emerald-600', iconBg: 'bg-emerald-50' },
-  error: { bg: 'bg-white', border: 'border-red-100', icon: 'text-red-600', iconBg: 'bg-red-50' },
-  info: { bg: 'bg-white', border: 'border-sky-100', icon: 'text-sky-600', iconBg: 'bg-sky-50' }
+  success: { bg: 'bg-white', border: 'border-emerald-100', icon: 'text-[#04825d]', iconBg: 'bg-emerald-50' },
+  error: { bg: 'bg-white', border: 'border-red-100', icon: 'text-[#d82525]', iconBg: 'bg-red-50' },
+  info: { bg: 'bg-white', border: 'border-sky-100', icon: 'text-[#0277b5]', iconBg: 'bg-sky-50' }
 };
 
 const ToneIcon = ({ type }: { type: ToastType }) => {

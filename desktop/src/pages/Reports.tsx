@@ -81,13 +81,17 @@ const Reports = () => {
     }
   };
 
+  const reportPath = (subPath: string) => (propertyId ? `/properties/${propertyId}/reports/${subPath}` : `/reports/${subPath}`);
+
   const [rentYear, rentMonthNumber] = reportMonth.split('-');
 
   return (
     <div className="space-y-6 pb-6">
       <div className="flex flex-wrap items-center gap-3">
         <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
-        {!propertyId ? <div className="text-sm text-[var(--muted)]">Choose one property to export reports.</div> : null}
+        {!propertyId ? (
+          <div className="text-sm text-[var(--muted)]">No property selected — reports will cover all properties.</div>
+        ) : null}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -121,10 +125,10 @@ const Reports = () => {
           <div className="flex gap-3">
             <button
               className="btn btn-primary !py-2.5"
-              disabled={!propertyId || loading}
+              disabled={loading}
               onClick={() =>
                 downloadReport(
-                  `/properties/${propertyId}/reports/monthly-rent`,
+                  reportPath('monthly-rent'),
                   { month: rentMonthNumber, year: rentYear, format: 'excel' },
                   `monthly-rent-${reportMonth}.xlsx`
                 )
@@ -134,10 +138,10 @@ const Reports = () => {
             </button>
             <button
               className="btn btn-secondary !py-2.5"
-              disabled={!propertyId || loading}
+              disabled={loading}
               onClick={() =>
                 downloadReport(
-                  `/properties/${propertyId}/reports/monthly-rent`,
+                  reportPath('monthly-rent'),
                   { month: rentMonthNumber, year: rentYear, format: 'pdf' },
                   `monthly-rent-${reportMonth}.pdf`
                 )
@@ -178,10 +182,10 @@ const Reports = () => {
           <div className="flex gap-3">
             <button
               className="btn btn-primary !py-2.5"
-              disabled={!propertyId || loading}
+              disabled={loading}
               onClick={() =>
                 downloadReport(
-                  `/properties/${propertyId}/reports/utility-bills`,
+                  reportPath('utility-bills'),
                   { month: utilityMonth, format: 'excel' },
                   `utility-bills-${utilityMonth}.xlsx`
                 )
@@ -191,10 +195,10 @@ const Reports = () => {
             </button>
             <button
               className="btn btn-secondary !py-2.5"
-              disabled={!propertyId || loading}
+              disabled={loading}
               onClick={() =>
                 downloadReport(
-                  `/properties/${propertyId}/reports/utility-bills`,
+                  reportPath('utility-bills'),
                   { month: utilityMonth, format: 'pdf' },
                   `utility-bills-${utilityMonth}.pdf`
                 )
@@ -225,10 +229,10 @@ const Reports = () => {
           <div className="flex gap-3">
             <button
               className="btn btn-primary !py-2.5"
-              disabled={!propertyId || loading}
+              disabled={loading}
               onClick={() =>
                 downloadReport(
-                  `/properties/${propertyId}/reports/property-income`,
+                  reportPath('property-income'),
                   { start: incomeStart, end: incomeEnd, format: 'excel' },
                   `property-income-${incomeStart}-${incomeEnd}.xlsx`
                 )
@@ -238,10 +242,10 @@ const Reports = () => {
             </button>
             <button
               className="btn btn-secondary !py-2.5"
-              disabled={!propertyId || loading}
+              disabled={loading}
               onClick={() =>
                 downloadReport(
-                  `/properties/${propertyId}/reports/property-income`,
+                  reportPath('property-income'),
                   { start: incomeStart, end: incomeEnd, format: 'pdf' },
                   `property-income-${incomeStart}-${incomeEnd}.pdf`
                 )
@@ -272,10 +276,10 @@ const Reports = () => {
           <div className="flex gap-3">
             <button
               className="btn btn-primary !py-2.5"
-              disabled={!propertyId || loading}
+              disabled={loading}
               onClick={() =>
                 downloadReport(
-                  `/properties/${propertyId}/reports/maintenance-expenses`,
+                  reportPath('maintenance-expenses'),
                   { start: maintenanceStart, end: maintenanceEnd, format: 'excel' },
                   `maintenance-${maintenanceStart}-${maintenanceEnd}.xlsx`
                 )
@@ -285,10 +289,10 @@ const Reports = () => {
             </button>
             <button
               className="btn btn-secondary !py-2.5"
-              disabled={!propertyId || loading}
+              disabled={loading}
               onClick={() =>
                 downloadReport(
-                  `/properties/${propertyId}/reports/maintenance-expenses`,
+                  reportPath('maintenance-expenses'),
                   { start: maintenanceStart, end: maintenanceEnd, format: 'pdf' },
                   `maintenance-${maintenanceStart}-${maintenanceEnd}.pdf`
                 )

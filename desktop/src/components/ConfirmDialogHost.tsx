@@ -22,7 +22,7 @@ const ConfirmDialogHost = () => {
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${danger ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'}`}>
+        <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${danger ? 'bg-red-50 text-[#d82525]' : 'bg-amber-50 text-[#b95709]'}`}>
           <AlertTriangleIcon width={22} height={22} />
         </div>
         <div className="mt-4 text-lg font-semibold text-[var(--text)]">{state.title}</div>

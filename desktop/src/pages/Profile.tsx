@@ -949,7 +949,7 @@ const Profile = () => {
                         <span className="ml-auto flex shrink-0 gap-1">
                           <button
                             type="button"
-                            className="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-amber-600 hover:bg-amber-50"
+                            className="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-[#bc5a08] hover:bg-amber-50"
                             onClick={() => setEditingMember(member)}
                           >
                             Edit

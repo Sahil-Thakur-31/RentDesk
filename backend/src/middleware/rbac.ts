@@ -3,7 +3,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { HttpError } from '../utils/httpError';
 import { Property } from '../models/Property';
 import { UserRole } from '../models/User';
-import { ensurePropertyPortfolio, getMembershipForUser } from '../services/portfolioService';
+import { ensurePropertyPortfolio, getMembershipForUser, getUserPortfolio } from '../services/portfolioService';
 
 export type Action =
   | 'property:create'
@@ -118,5 +118,21 @@ export const requirePropertyRole = (action: Action) =>
 export const requirePropertyRoleAllowArchived = (action: Action) =>
   asyncHandler(async (req, res, next) => {
     await checkPropertyAccess(req, action, true);
+    next();
+  });
+
+export const requirePortfolioRole = (action: Action) =>
+  asyncHandler(async (req, res, next) => {
+    if (!req.user) throw new HttpError(401, 'Unauthorized');
+
+    const portfolio = await getUserPortfolio(req.user);
+    if (!portfolio) throw new HttpError(404, 'No portfolio found');
+
+    const membership = getMembershipForUser(portfolio, req.user._id);
+    if (!membership) throw new HttpError(403, 'Access denied for this portfolio');
+    if (!can(membership.role, action)) throw new HttpError(403, 'Insufficient permissions');
+
+    req.portfolio = portfolio as any;
+    req.userRole = membership.role;
     next();
   });

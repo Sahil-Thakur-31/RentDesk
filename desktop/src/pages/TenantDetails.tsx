@@ -697,7 +697,7 @@ const TenantDetails = () => {
                 <div className="text-xs text-[var(--muted)] uppercase tracking-wide">ID Proof</div>
                 <div className="font-medium flex items-center gap-2 whitespace-nowrap">
                   {tenant.idProofType && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-[var(--surface-2)] text-[var(--muted)]">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-[var(--surface-2)] text-slate-600">
                       {tenant.idProofType}
                     </span>
                   )}

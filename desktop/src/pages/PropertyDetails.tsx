@@ -395,7 +395,7 @@ const PropertyDetails = () => {
                   {propertyTypeLabels[property.propertyType] || property.propertyType}
                 </Badge>
                 {property.size && (
-                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-[var(--muted)]">
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-slate-600">
                     {property.size} sq ft
                   </span>
                 )}

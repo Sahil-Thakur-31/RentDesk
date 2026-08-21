@@ -11,9 +11,9 @@ interface StatCardProps {
 
 const tones: Record<string, { text: string; bar: string; iconBg: string; iconText: string }> = {
   default: { text: 'text-[var(--accent)]', bar: 'bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)]', iconBg: 'bg-teal-50', iconText: 'text-[var(--accent)]' },
-  success: { text: 'text-[var(--success)]', bar: 'bg-[var(--success)]', iconBg: 'bg-emerald-50', iconText: 'text-emerald-600' },
-  warning: { text: 'text-[var(--warning)]', bar: 'bg-[var(--warning)]', iconBg: 'bg-amber-50', iconText: 'text-amber-600' },
-  danger: { text: 'text-[var(--danger)]', bar: 'bg-[var(--danger)]', iconBg: 'bg-red-50', iconText: 'text-red-600' }
+  success: { text: 'text-[var(--success)]', bar: 'bg-[var(--success)]', iconBg: 'bg-emerald-50', iconText: 'text-[#04825d]' },
+  warning: { text: 'text-[var(--warning)]', bar: 'bg-[var(--warning)]', iconBg: 'bg-amber-50', iconText: 'text-[#b95709]' },
+  danger: { text: 'text-[var(--danger)]', bar: 'bg-[var(--danger)]', iconBg: 'bg-red-50', iconText: 'text-[#d82525]' }
 };
 
 const StatCard = ({ label, value, subLabel, tone = 'default', icon }: StatCardProps) => {

@@ -8,15 +8,15 @@ import { useI18n } from '../lib/i18n';
 import { BellIcon, CalendarIcon, ChevronDownIcon, LogoutIcon, SettingsIcon, UserIcon, WifiOffIcon } from './icons';
 
 const notificationToneStyles: Record<string, string> = {
-  success: 'text-emerald-600',
-  warning: 'text-amber-600',
-  info: 'text-sky-600'
+  success: 'text-[#04825d]',
+  warning: 'text-[#b95709]',
+  info: 'text-[#0277b5]'
 };
 
 const notificationDotStyles: Record<string, string> = {
-  success: 'bg-emerald-500',
-  warning: 'bg-amber-500',
-  info: 'bg-sky-500'
+  success: 'bg-[#09a171]',
+  warning: 'bg-amber-600',
+  info: 'bg-[#0895d9]'
 };
 
 const TopBar = () => {

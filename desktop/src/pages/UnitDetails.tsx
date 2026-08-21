@@ -707,16 +707,16 @@ const UnitDetails = () => {
               <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-[var(--text)]">
                 {unitTypeLabels[unit.unitType] || unit.unitType}
               </span>
-              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-[var(--muted)]">
+              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-slate-600">
                 Floor {unit.floor || '-'}
               </span>
               {unit.size && (
-                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-[var(--muted)]">
+                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-slate-600">
                   {unit.size} sq ft
                 </span>
               )}
               {unit.activeSince && (
-                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-[var(--muted)]">
+                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-slate-600">
                   Active since {formatDate(unit.activeSince, { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
               )}

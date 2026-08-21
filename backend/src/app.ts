@@ -11,6 +11,7 @@ import utilityRoutes from './routes/utilityBills';
 import maintenanceRoutes from './routes/maintenance';
 import paymentRoutes from './routes/payments';
 import reportRoutes from './routes/reports';
+import portfolioReportRoutes from './routes/portfolioReports';
 import dashboardRoutes from './routes/dashboard';
 import userRoutes from './routes/users';
 import portfolioRoutes from './routes/portfolio';
@@ -39,6 +40,7 @@ app.use('/api/properties/:propertyId/utility-bills', utilityRoutes);
 app.use('/api/properties/:propertyId/maintenance', maintenanceRoutes);
 app.use('/api/properties/:propertyId/payments', paymentRoutes);
 app.use('/api/properties/:propertyId/reports', reportRoutes);
+app.use('/api/reports', portfolioReportRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/users', userRoutes);
 

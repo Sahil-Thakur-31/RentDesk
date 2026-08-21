@@ -878,7 +878,7 @@ const Dashboard = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            className="btn btn-primary btn-sm"
+            className="btn btn-primary"
             onClick={() => setShowPaymentModal(true)}
           >
             {t('Add Payment')}
@@ -1012,9 +1012,9 @@ const Dashboard = () => {
                     <span
                       className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
                         item.collectedRate >= 100
-                          ? 'bg-emerald-50 text-emerald-600'
+                          ? 'bg-emerald-50 text-[#04825d]'
                           : item.collectedRate > 0
-                            ? 'bg-amber-50 text-amber-600'
+                            ? 'bg-amber-50 text-[#b95709]'
                             : 'bg-black/5 text-[var(--muted)]'
                       }`}
                     >

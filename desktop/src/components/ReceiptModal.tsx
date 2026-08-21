@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CloseIcon, PrinterIcon } from './icons';
+import Badge, { type BadgeTone } from './Badge';
 import { formatCurrency } from '../lib/format';
 import { cachedGet } from '../lib/queryCache';
 import type { ReceiptData } from '../lib/receipt';
@@ -8,6 +9,12 @@ interface ReceiptModalProps {
   data: ReceiptData | null;
   onClose: () => void;
 }
+
+const statusTone = (status: string): BadgeTone => {
+  if (status === 'paid') return 'success';
+  if (status === 'partial') return 'warning';
+  return 'danger';
+};
 
 const ReceiptModal = ({ data, onClose }: ReceiptModalProps) => {
   const [portfolioName, setPortfolioName] = useState('');
@@ -70,10 +77,14 @@ const ReceiptModal = ({ data, onClose }: ReceiptModalProps) => {
             <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
               {data.tenantName && <span className="font-medium">{data.tenantName}</span>}
               {data.unitNumber && (
-                <span className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-xs text-[var(--muted)]">Unit {data.unitNumber}</span>
+                <Badge tone="info" dot={false} className="!px-2.5 !py-0.5 !text-xs !font-medium">
+                  Unit {data.unitNumber}
+                </Badge>
               )}
               {data.status && (
-                <span className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-xs capitalize text-[var(--muted)]">{data.status}</span>
+                <Badge tone={statusTone(data.status)} dot={false} className="!px-2.5 !py-0.5 !text-xs !font-medium capitalize">
+                  {data.status}
+                </Badge>
               )}
             </div>
           )}

@@ -3,21 +3,21 @@ import type { ReactNode } from 'react';
 export type BadgeTone = 'success' | 'warning' | 'danger' | 'info' | 'accent' | 'neutral';
 
 const toneStyles: Record<BadgeTone, string> = {
-  success: 'bg-emerald-50 text-emerald-600 border-emerald-100',
-  warning: 'bg-amber-50 text-amber-600 border-amber-100',
-  danger: 'bg-red-50 text-red-600 border-red-100',
-  info: 'bg-sky-50 text-sky-600 border-sky-100',
+  success: 'bg-emerald-50 text-[#04825d] border-emerald-100',
+  warning: 'bg-amber-50 text-[#b95709] border-amber-100',
+  danger: 'bg-red-50 text-[#d82525] border-red-100',
+  info: 'bg-sky-50 text-[#0277b5] border-sky-100',
   accent: 'bg-violet-50 text-violet-600 border-violet-100',
-  neutral: 'bg-black/5 text-[var(--muted)] border-black/5'
+  neutral: 'bg-black/5 text-slate-600 border-black/5'
 };
 
 const dotStyles: Record<BadgeTone, string> = {
-  success: 'bg-emerald-500',
-  warning: 'bg-amber-500',
+  success: 'bg-[#09a171]',
+  warning: 'bg-amber-600',
   danger: 'bg-red-500',
-  info: 'bg-sky-500',
+  info: 'bg-[#0895d9]',
   accent: 'bg-violet-500',
-  neutral: 'bg-slate-400'
+  neutral: 'bg-slate-500'
 };
 
 interface BadgeProps {

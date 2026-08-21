@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
+import DatePicker from '../components/DatePicker';
 import { formatMonthKey, getCurrentDateValue, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
 import { cachedGet, useCachedQuery } from '../lib/queryCache';
 import { toast } from '../lib/toast';
@@ -103,11 +104,11 @@ const Reports = () => {
             >
               {'<'}
             </button>
-            <input
-              type="month"
-              className="rounded-2xl border border-black/10 px-3 py-2.5 text-sm"
+            <DatePicker
+              picker="month"
+              className="w-[150px] rounded-2xl border border-black/10 px-3 py-2.5"
               value={reportMonth}
-              onChange={(e) => setReportMonth(e.target.value)}
+              onChange={(next) => setReportMonth(next)}
             />
             <button
               type="button"
@@ -160,11 +161,11 @@ const Reports = () => {
             >
               {'<'}
             </button>
-            <input
-              type="month"
-              className="rounded-2xl border border-black/10 px-3 py-2.5 text-sm"
+            <DatePicker
+              picker="month"
+              className="w-[150px] rounded-2xl border border-black/10 px-3 py-2.5"
               value={utilityMonth}
-              onChange={(e) => setUtilityMonth(e.target.value)}
+              onChange={(next) => setUtilityMonth(next)}
             />
             <button
               type="button"
@@ -210,17 +211,15 @@ const Reports = () => {
             <div className="mt-2 text-2xl font-semibold">Cash ledger</div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <input
-              type="date"
-              className="rounded-2xl border border-black/10 px-3 py-2.5 text-sm"
+            <DatePicker
+              className="rounded-2xl border border-black/10 px-3 py-2.5"
               value={incomeStart}
-              onChange={(e) => setIncomeStart(e.target.value)}
+              onChange={(next) => setIncomeStart(next)}
             />
-            <input
-              type="date"
-              className="rounded-2xl border border-black/10 px-3 py-2.5 text-sm"
+            <DatePicker
+              className="rounded-2xl border border-black/10 px-3 py-2.5"
               value={incomeEnd}
-              onChange={(e) => setIncomeEnd(e.target.value)}
+              onChange={(next) => setIncomeEnd(next)}
             />
           </div>
           <div className="flex gap-3">
@@ -259,17 +258,15 @@ const Reports = () => {
             <div className="mt-2 text-2xl font-semibold">Expense report</div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <input
-              type="date"
-              className="rounded-2xl border border-black/10 px-3 py-2.5 text-sm"
+            <DatePicker
+              className="rounded-2xl border border-black/10 px-3 py-2.5"
               value={maintenanceStart}
-              onChange={(e) => setMaintenanceStart(e.target.value)}
+              onChange={(next) => setMaintenanceStart(next)}
             />
-            <input
-              type="date"
-              className="rounded-2xl border border-black/10 px-3 py-2.5 text-sm"
+            <DatePicker
+              className="rounded-2xl border border-black/10 px-3 py-2.5"
               value={maintenanceEnd}
-              onChange={(e) => setMaintenanceEnd(e.target.value)}
+              onChange={(next) => setMaintenanceEnd(next)}
             />
           </div>
           <div className="flex gap-3">

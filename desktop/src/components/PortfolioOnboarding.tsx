@@ -2,6 +2,8 @@ import { useState } from 'react';
 import api from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { toast } from '../lib/toast';
+import FieldError from './FieldError';
+import { isBlank } from '../lib/validation';
 
 type OnboardingMode = 'create' | 'join';
 
@@ -19,9 +21,16 @@ const PortfolioOnboarding = ({
   );
   const [joinCode, setJoinCode] = useState('');
   const [saving, setSaving] = useState(false);
+  const [portfolioNameError, setPortfolioNameError] = useState<string | undefined>();
+  const [joinCodeError, setJoinCodeError] = useState<string | undefined>();
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isBlank(portfolioName)) {
+      setPortfolioNameError(t('Portfolio name is required'));
+      return;
+    }
+    setPortfolioNameError(undefined);
     setSaving(true);
     try {
       await api.post('/portfolio/create', { name: portfolioName.trim() });
@@ -35,6 +44,11 @@ const PortfolioOnboarding = ({
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isBlank(joinCode)) {
+      setJoinCodeError(t('Enter the 7-digit portfolio code'));
+      return;
+    }
+    setJoinCodeError(undefined);
     setSaving(true);
     try {
       await api.post('/portfolio/join-requests', { code: joinCode.trim() });
@@ -85,16 +99,19 @@ const PortfolioOnboarding = ({
           </div>
 
           {mode === 'create' ? (
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div>
+            <form onSubmit={handleCreate} noValidate className="space-y-4">
+              <div className="relative">
                 <label className="text-sm font-medium">{t('Portfolio Name')}</label>
                 <input
-                  className="mt-2 w-full rounded-2xl border border-black/10 px-4 py-3 text-sm"
+                  className={`mt-2 w-full rounded-2xl border border-black/10 px-4 py-3 text-sm ${portfolioNameError ? 'input-error' : ''}`}
                   value={portfolioName}
-                  onChange={(e) => setPortfolioName(e.target.value)}
+                  onChange={(e) => {
+                    setPortfolioName(e.target.value);
+                    setPortfolioNameError(undefined);
+                  }}
                   placeholder={t('Portfolio Name')}
-                  required
                 />
+                <FieldError message={portfolioNameError} />
               </div>
               <button
                 type="submit"
@@ -105,17 +122,20 @@ const PortfolioOnboarding = ({
               </button>
             </form>
           ) : (
-            <form onSubmit={handleJoin} className="space-y-4">
-              <div>
+            <form onSubmit={handleJoin} noValidate className="space-y-4">
+              <div className="relative">
                 <label className="text-sm font-medium">{t('7-Digit Portfolio Code')}</label>
                 <input
-                  className="mt-2 w-full rounded-2xl border border-black/10 px-4 py-3 text-center text-sm tracking-[0.35em]"
+                  className={`mt-2 w-full rounded-2xl border border-black/10 px-4 py-3 text-center text-sm tracking-[0.35em] ${joinCodeError ? 'input-error' : ''}`}
                   value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value.replace(/\D/g, '').slice(0, 7))}
+                  onChange={(e) => {
+                    setJoinCode(e.target.value.replace(/\D/g, '').slice(0, 7));
+                    setJoinCodeError(undefined);
+                  }}
                   placeholder="1234567"
                   inputMode="numeric"
-                  required
                 />
+                <FieldError message={joinCodeError} />
               </div>
               <button
                 type="submit"

@@ -7,6 +7,7 @@ import { Unit } from '../models/Unit';
 import { Payment } from '../models/Payment';
 import { ensureBase64OrThrow } from '../utils/base64';
 import { optionalString, requireString } from '../utils/request';
+import { requireNonNegative } from '../utils/validation';
 import { emitPortfolioEvent } from '../ws/emit';
 import { buildPaginatedResult, buildSearchRegexStage, isPaginatedRequest, parseListQuery, runPaginatedAggregate } from '../utils/listQuery';
 
@@ -108,6 +109,9 @@ export const createUtilityBill = asyncHandler(async (req, res) => {
   if (!unitId || !billType || !month || meterStart == null || meterEnd == null || unitsConsumed == null) {
     throw new HttpError(400, 'Missing required utility bill fields');
   }
+  requireNonNegative(meterStart, 'meterStart');
+  requireNonNegative(meterEnd, 'meterEnd');
+  requireNonNegative(unitsConsumed, 'unitsConsumed');
 
   ensureBase64OrThrow(billImageBase64, 'billImageBase64');
 
@@ -170,6 +174,9 @@ export const updateUtilityBill = asyncHandler(async (req, res) => {
   if (!bill) throw new HttpError(404, 'Utility bill not found');
 
   ensureBase64OrThrow(req.body.billImageBase64, 'billImageBase64');
+  if (req.body.meterStart != null) requireNonNegative(req.body.meterStart, 'meterStart');
+  if (req.body.meterEnd != null) requireNonNegative(req.body.meterEnd, 'meterEnd');
+  if (req.body.amount != null) requireNonNegative(req.body.amount, 'amount');
 
   const previousStatus = bill.status;
   Object.assign(bill, req.body);

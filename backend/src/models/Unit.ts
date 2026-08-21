@@ -9,6 +9,7 @@ export interface IUnit {
   unitType: UnitType;
   floor?: string;
   size?: string;
+  activeSince?: Date;
   monthlyRent: number;
   deposit: number;
   status: UnitStatus;
@@ -33,6 +34,7 @@ const unitSchema = new Schema<IUnit>(
     },
     floor: { type: String },
     size: { type: String },
+    activeSince: { type: Date },
     monthlyRent: { type: Number, required: true },
     deposit: { type: Number, required: true },
     status: { type: String, enum: ['occupied', 'vacant', 'maintenance'], default: 'vacant' },

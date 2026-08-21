@@ -8,6 +8,10 @@ import { SkeletonCardGrid } from '../components/Skeleton';
 import { BuildingIcon, CloseIcon } from '../components/icons';
 import { toast } from '../lib/toast';
 import { confirmDialog } from '../lib/confirmDialog';
+import FieldError from '../components/FieldError';
+import DatePicker from '../components/DatePicker';
+import { formatDate } from '../lib/dateFormat';
+import { isBlank, requiredMsg, type FieldErrors } from '../lib/validation';
 
 const propertyTypeLabels: Record<string, string> = {
   building: 'Building',
@@ -41,10 +45,12 @@ const Properties = () => {
     pincode: '',
     size: '',
     notes: '',
+    activeSince: '',
     maintenanceCharge: '',
     electricityUnitRate: '',
     commonElectricityCharge: ''
   });
+  const [errors, setErrors] = useState<FieldErrors>({});
 
   const [renderedTab, setRenderedTab] = useState(tab);
   if (tab !== renderedTab) {
@@ -72,10 +78,23 @@ const Properties = () => {
 
   const updateField = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+
+  const validate = () => {
+    const next: FieldErrors = {};
+    if (isBlank(form.name)) next.name = requiredMsg('Property name');
+    if (isBlank(form.address)) next.address = requiredMsg('Address');
+    if (isBlank(form.city)) next.city = requiredMsg('City');
+    if (isBlank(form.state)) next.state = requiredMsg('State');
+    if (isBlank(form.pincode)) next.pincode = requiredMsg('Pincode');
+    setErrors(next);
+    return !Object.values(next).some(Boolean);
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validate()) return;
     setLoading(true);
     try {
       const payload = {
@@ -95,10 +114,12 @@ const Properties = () => {
         pincode: '',
         size: '',
         notes: '',
+        activeSince: '',
         maintenanceCharge: '',
         electricityUnitRate: '',
         commonElectricityCharge: ''
       });
+      setErrors({});
       await loadProperties(tab, { force: true });
       toast.success('Property added.');
     } catch (err: any) {
@@ -138,15 +159,18 @@ const Properties = () => {
       pincode: '',
       size: '',
       notes: '',
+      activeSince: '',
       maintenanceCharge: '',
       electricityUnitRate: '',
       commonElectricityCharge: ''
     });
+    setErrors({});
     setShowAdd(true);
   };
 
   const closeModal = () => {
     setShowAdd(false);
+    setErrors({});
   };
 
   return (
@@ -191,17 +215,17 @@ const Properties = () => {
                 <CloseIcon width={18} height={18} />
               </button>
             </div>
-            <form onSubmit={submit} className="space-y-4">
+            <form onSubmit={submit} noValidate className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Property Name</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${errors.name ? 'input-error' : ''}`}
                     placeholder="Property name"
                     value={form.name}
                     onChange={(e) => updateField('name', e.target.value)}
-                    required
                   />
+                  <FieldError message={errors.name} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Property Type</label>
@@ -217,45 +241,45 @@ const Properties = () => {
                     <option value="plot">Plot</option>
                   </select>
                 </div>
-                <div className="md:col-span-2">
+                <div className="relative md:col-span-2">
                   <label className="text-xs text-[var(--muted)]">Address</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${errors.address ? 'input-error' : ''}`}
                     placeholder="Address"
                     value={form.address}
                     onChange={(e) => updateField('address', e.target.value)}
-                    required
                   />
+                  <FieldError message={errors.address} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">City</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${errors.city ? 'input-error' : ''}`}
                     placeholder="City"
                     value={form.city}
                     onChange={(e) => updateField('city', e.target.value)}
-                    required
                   />
+                  <FieldError message={errors.city} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">State</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${errors.state ? 'input-error' : ''}`}
                     placeholder="State"
                     value={form.state}
                     onChange={(e) => updateField('state', e.target.value)}
-                    required
                   />
+                  <FieldError message={errors.state} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Pincode</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${errors.pincode ? 'input-error' : ''}`}
                     placeholder="Pincode"
                     value={form.pincode}
                     onChange={(e) => updateField('pincode', e.target.value)}
-                    required
                   />
+                  <FieldError message={errors.pincode} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Size in sq ft (Optional)</label>
@@ -264,6 +288,14 @@ const Properties = () => {
                     placeholder="e.g. 1200"
                     value={form.size}
                     onChange={(e) => updateField('size', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)]">Active Since (Optional)</label>
+                  <DatePicker
+                    className="w-full px-3 py-2 mt-1 rounded-xl border border-black/10"
+                    value={form.activeSince}
+                    onChange={(next) => updateField('activeSince', next)}
                   />
                 </div>
                 <div className="md:col-span-2">
@@ -338,6 +370,9 @@ const Properties = () => {
             </div>
             <div className="text-sm text-[var(--muted)]">{property.address}</div>
             <div className="text-xs text-[var(--muted)] mt-2">{property.city}, {property.state}</div>
+            {property.activeSince && (
+              <div className="text-xs text-[var(--muted)] mt-1">Active since {formatDate(property.activeSince, { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+            )}
             <div className="mt-4 flex items-center gap-2">
               <button
                 className="btn btn-sm btn-info"

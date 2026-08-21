@@ -104,6 +104,16 @@ export const createRentRecord = asyncHandler(async (req, res) => {
   const tenant = await Tenant.findOne({ _id: tenantId, propertyId });
   if (!tenant) throw new HttpError(404, 'Tenant not found');
 
+  const periodStart = dayjs().year(parsedYear).month(parsedMonth - 1).startOf('month');
+  const periodEnd = dayjs().year(parsedYear).month(parsedMonth - 1).endOf('month');
+
+  if (tenant.movedInDate && periodEnd.isBefore(dayjs(tenant.movedInDate))) {
+    throw new HttpError(400, 'Tenant had not moved in yet for the selected month');
+  }
+  if (tenant.movedOutDate && periodStart.isAfter(dayjs(tenant.movedOutDate))) {
+    throw new HttpError(400, 'Tenant had already moved out before the selected month');
+  }
+
   const existingRecord = await RentRecord.findOne({ propertyId, tenantId, month: parsedMonth, year: parsedYear });
 
   if (existingRecord) {

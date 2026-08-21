@@ -3,6 +3,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { env } from '../config/env';
 import { HttpError } from '../utils/httpError';
 import { User } from '../models/User';
+import { ensureCurrentMonthRentGenerated } from '../services/monthlyRentAutoGenService';
 
 interface TokenPayload {
   id: string;
@@ -25,5 +26,6 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
 
   const token = header.replace('Bearer ', '').trim();
   req.user = await verifyTokenAndLoadUser(token);
+  await ensureCurrentMonthRentGenerated();
   next();
 });

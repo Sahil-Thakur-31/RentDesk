@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import PropertyPicker from '../components/PropertyPicker';
 import Badge, { type BadgeTone } from '../components/Badge';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
-import { ReportsIcon } from '../components/icons';
+import { EyeIcon, ReportsIcon } from '../components/icons';
+import DatePicker from '../components/DatePicker';
+import ReceiptModal from '../components/ReceiptModal';
+import { buildRentReceipt, type ReceiptData } from '../lib/receipt';
 import { formatMonthYear, shiftMonthValue } from '../lib/dateFormat';
 import { cachedGet, isCached, useCachedQuery } from '../lib/queryCache';
 import { formatCurrency } from '../lib/format';
@@ -28,6 +31,7 @@ const RentRecords = () => {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   const isServerMode = Boolean(propertyId);
 
@@ -120,6 +124,26 @@ const RentRecords = () => {
         { value: 'unpaid', label: 'Unpaid' }
       ],
       render: (record) => <Badge tone={statusTone(record.status)}>{record.status}</Badge>
+    },
+    {
+      key: 'view',
+      label: '',
+      sortable: false,
+      render: (record) => (
+        <button
+          type="button"
+          className="icon-btn h-8 w-8"
+          onClick={(e) => {
+            e.stopPropagation();
+            const property = properties.find((item) => item._id === (record._propertyId || propertyId));
+            const propertyName = record._propertyName || property?.name || '-';
+            setReceipt(buildRentReceipt(record, propertyName, property?.address));
+          }}
+          title="View Receipt"
+        >
+          <EyeIcon width={15} height={15} />
+        </button>
+      )
     }
   ];
 
@@ -128,21 +152,21 @@ const RentRecords = () => {
       <div className="flex flex-wrap items-center justify-end gap-3">
         <button
           type="button"
-          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
           onClick={() => setMonthValue((prev) => shiftMonthValue(prev, -1))}
           aria-label="Previous month"
         >
           ←
         </button>
-        <input
-          type="month"
-          className="border border-black/10 rounded-lg px-3 py-2 text-sm"
+        <DatePicker
+          picker="month"
+          className="w-[150px] px-3 py-2 rounded-xl border border-black/10"
           value={monthValue}
-          onChange={(e) => setMonthValue(e.target.value)}
+          onChange={(next) => setMonthValue(next)}
         />
         <button
           type="button"
-          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
           onClick={() => setMonthValue((prev) => shiftMonthValue(prev, 1))}
           aria-label="Next month"
         >
@@ -192,6 +216,7 @@ const RentRecords = () => {
             : undefined
         }
       />
+      <ReceiptModal data={receipt} onClose={() => setReceipt(null)} />
     </div>
   );
 };

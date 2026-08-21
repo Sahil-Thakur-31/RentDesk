@@ -14,6 +14,7 @@ import {
   getUserPortfolio
 } from '../services/portfolioService';
 import { requireString } from '../utils/request';
+import { requireFields, requireNonNegative } from '../utils/validation';
 import { emitPortfolioEvent } from '../ws/emit';
 
 const getId = (value: any) => String(value?._id || value || '');
@@ -28,15 +29,17 @@ export const createProperty = asyncHandler(async (req, res) => {
     pincode,
     size,
     notes,
+    activeSince,
     maintenanceCharge,
     electricityUnitRate,
     commonElectricityCharge
   } = req.body;
 
   if (!req.user) throw new HttpError(401, 'Unauthorized');
-  if (!name || !propertyType || !address || !city || !state || !pincode) {
-    throw new HttpError(400, 'Missing required property fields');
-  }
+  requireFields(req.body, ['name', 'propertyType', 'address', 'city', 'state', 'pincode']);
+  if (maintenanceCharge != null) requireNonNegative(maintenanceCharge, 'maintenanceCharge');
+  if (electricityUnitRate != null) requireNonNegative(electricityUnitRate, 'electricityUnitRate');
+  if (commonElectricityCharge != null) requireNonNegative(commonElectricityCharge, 'commonElectricityCharge');
 
   const portfolio = await getUserPortfolio(req.user);
   if (!portfolio) {
@@ -58,6 +61,7 @@ export const createProperty = asyncHandler(async (req, res) => {
     pincode,
     size,
     notes,
+    activeSince: activeSince ? new Date(activeSince) : undefined,
     maintenanceCharge,
     electricityUnitRate,
     commonElectricityCharge,
@@ -189,6 +193,17 @@ export const updateProperty = asyncHandler(async (req, res) => {
   const propertyId = requireString(req.params.propertyId, 'propertyId');
   const property = await Property.findById(propertyId);
   if (!property || property.isArchived) throw new HttpError(404, 'Property not found');
+
+  const requiredIfPresent = ['name', 'propertyType', 'address', 'city', 'state', 'pincode'] as const;
+  const emptyField = requiredIfPresent.find(
+    (field) => Object.prototype.hasOwnProperty.call(req.body, field) && !String(req.body[field] ?? '').trim()
+  );
+  if (emptyField) {
+    throw new HttpError(400, `${emptyField} cannot be empty`, { fields: [emptyField] });
+  }
+  if (req.body.maintenanceCharge != null) requireNonNegative(req.body.maintenanceCharge, 'maintenanceCharge');
+  if (req.body.electricityUnitRate != null) requireNonNegative(req.body.electricityUnitRate, 'electricityUnitRate');
+  if (req.body.commonElectricityCharge != null) requireNonNegative(req.body.commonElectricityCharge, 'commonElectricityCharge');
 
   Object.assign(property, req.body);
   await property.save();

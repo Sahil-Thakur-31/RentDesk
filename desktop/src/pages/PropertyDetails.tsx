@@ -9,6 +9,10 @@ import { toast } from '../lib/toast';
 import { confirmDialog } from '../lib/confirmDialog';
 import { SkeletonDetailHeader, SkeletonStatRow, SkeletonTable } from '../components/Skeleton';
 import { formatCurrency } from '../lib/format';
+import FieldError from '../components/FieldError';
+import DatePicker from '../components/DatePicker';
+import { formatDate } from '../lib/dateFormat';
+import { isBlank, isPositiveNumber, isNonNegativeNumber, requiredMsg, type FieldErrors } from '../lib/validation';
 
 const propertyTypeLabels: Record<string, string> = {
   building: 'Building',
@@ -68,6 +72,7 @@ const PropertyDetails = () => {
     pincode: '',
     size: '',
     notes: '',
+    activeSince: '',
     maintenanceCharge: '',
     electricityUnitRate: '',
     commonElectricityCharge: ''
@@ -77,10 +82,13 @@ const PropertyDetails = () => {
     unitType: '1bhk',
     floor: '',
     size: '',
+    activeSince: '',
     monthlyRent: '',
     deposit: '',
     lastMeterReading: ''
   });
+  const [editErrors, setEditErrors] = useState<FieldErrors>({});
+  const [unitErrors, setUnitErrors] = useState<FieldErrors>({});
 
   const load = async (options?: { force?: boolean }) => {
     if (!propertyId) return;
@@ -112,6 +120,7 @@ const PropertyDetails = () => {
         pincode: propertyData.pincode || '',
         size: propertyData.size || '',
         notes: propertyData.notes || '',
+        activeSince: propertyData.activeSince ? String(propertyData.activeSince).slice(0, 10) : '',
         maintenanceCharge: String(propertyData.maintenanceCharge ?? ''),
         electricityUnitRate: String(propertyData.electricityUnitRate ?? ''),
         commonElectricityCharge: String(propertyData.commonElectricityCharge ?? '')
@@ -135,15 +144,38 @@ const PropertyDetails = () => {
 
   const updateEditField = (key: string, value: string) => {
     setEditForm((prev) => ({ ...prev, [key]: value }));
+    setEditErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
   };
 
   const updateUnitField = (key: string, value: string) => {
     setUnitForm((prev) => ({ ...prev, [key]: value }));
+    setUnitErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+
+  const validateEditForm = () => {
+    const next: FieldErrors = {};
+    if (isBlank(editForm.name)) next.name = requiredMsg('Property name');
+    if (isBlank(editForm.address)) next.address = requiredMsg('Address');
+    if (isBlank(editForm.city)) next.city = requiredMsg('City');
+    if (isBlank(editForm.state)) next.state = requiredMsg('State');
+    if (isBlank(editForm.pincode)) next.pincode = requiredMsg('Pincode');
+    setEditErrors(next);
+    return !Object.values(next).some(Boolean);
+  };
+
+  const validateUnitForm = () => {
+    const next: FieldErrors = {};
+    if (isBlank(unitForm.unitNumber)) next.unitNumber = requiredMsg('Unit number');
+    if (!isPositiveNumber(unitForm.monthlyRent)) next.monthlyRent = 'Monthly rent must be greater than 0';
+    if (!isNonNegativeNumber(unitForm.deposit)) next.deposit = 'Deposit must be a valid amount';
+    setUnitErrors(next);
+    return !Object.values(next).some(Boolean);
   };
 
   const saveProperty = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!propertyId) return;
+    if (!validateEditForm()) return;
     setLoading(true);
     try {
       const payload = {
@@ -154,6 +186,7 @@ const PropertyDetails = () => {
       };
       await api.patch(`/properties/${propertyId}`, payload);
       await load({ force: true });
+      setEditErrors({});
       setShowEdit(false);
       toast.success('Property updated.');
     } catch (err: any) {
@@ -217,6 +250,7 @@ const PropertyDetails = () => {
   const addUnit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!propertyId) return;
+    if (!validateUnitForm()) return;
     setLoading(true);
     try {
       await api.post(`/properties/${propertyId}/units`, {
@@ -224,6 +258,7 @@ const PropertyDetails = () => {
         unitType: unitForm.unitType,
         floor: unitForm.floor || undefined,
         size: unitForm.size || undefined,
+        activeSince: unitForm.activeSince || undefined,
         monthlyRent: Number(unitForm.monthlyRent),
         deposit: Number(unitForm.deposit),
         lastMeterReading: unitForm.lastMeterReading ? Number(unitForm.lastMeterReading) : undefined
@@ -236,10 +271,12 @@ const PropertyDetails = () => {
         unitType: '1bhk',
         floor: '',
         size: '',
+        activeSince: '',
         monthlyRent: '',
         deposit: '',
         lastMeterReading: ''
       });
+      setUnitErrors({});
       setShowAddUnit(false);
       toast.success('Unit added.');
     } catch (err: any) {
@@ -368,6 +405,11 @@ const PropertyDetails = () => {
               <div className="text-xs text-[var(--muted)] mt-0.5">
                 {property.city}, {property.state} - {property.pincode}
               </div>
+              {property.activeSince && (
+                <div className="text-xs text-[var(--muted)] mt-0.5">
+                  Active since {formatDate(property.activeSince, { day: 'numeric', month: 'short', year: 'numeric' })}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -382,7 +424,10 @@ const PropertyDetails = () => {
               <>
                 <button
                   className="btn btn-warning"
-                  onClick={() => setShowEdit(true)}
+                  onClick={() => {
+                    setEditErrors({});
+                    setShowEdit(true);
+                  }}
                 >
                   Edit
                 </button>
@@ -475,7 +520,10 @@ const PropertyDetails = () => {
           !property.isArchived && (
             <button
               className="btn btn-primary"
-              onClick={() => setShowAddUnit(true)}
+              onClick={() => {
+                setUnitErrors({});
+                setShowAddUnit(true);
+              }}
             >
               Add Unit
             </button>
@@ -492,21 +540,28 @@ const PropertyDetails = () => {
           <div className="w-full max-w-4xl bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="text-lg font-semibold">Edit Property</div>
-              <button className="modal-close-btn" onClick={() => setShowEdit(false)} aria-label="Close">
+              <button
+                className="modal-close-btn"
+                onClick={() => {
+                  setEditErrors({});
+                  setShowEdit(false);
+                }}
+                aria-label="Close"
+              >
                 <CloseIcon width={18} height={18} />
               </button>
             </div>
-            <form onSubmit={saveProperty} className="space-y-4">
+            <form onSubmit={saveProperty} noValidate className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Property Name</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${editErrors.name ? 'input-error' : ''}`}
                     placeholder="Property name"
                     value={editForm.name}
                     onChange={(e) => updateEditField('name', e.target.value)}
-                    required
                   />
+                  <FieldError message={editErrors.name} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Property Type</label>
@@ -522,45 +577,45 @@ const PropertyDetails = () => {
                     <option value="plot">Plot</option>
                   </select>
                 </div>
-                <div className="md:col-span-2">
+                <div className="relative md:col-span-2">
                   <label className="text-xs text-[var(--muted)]">Address</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${editErrors.address ? 'input-error' : ''}`}
                     placeholder="Address"
                     value={editForm.address}
                     onChange={(e) => updateEditField('address', e.target.value)}
-                    required
                   />
+                  <FieldError message={editErrors.address} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">City</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${editErrors.city ? 'input-error' : ''}`}
                     placeholder="City"
                     value={editForm.city}
                     onChange={(e) => updateEditField('city', e.target.value)}
-                    required
                   />
+                  <FieldError message={editErrors.city} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">State</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${editErrors.state ? 'input-error' : ''}`}
                     placeholder="State"
                     value={editForm.state}
                     onChange={(e) => updateEditField('state', e.target.value)}
-                    required
                   />
+                  <FieldError message={editErrors.state} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Pincode</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${editErrors.pincode ? 'input-error' : ''}`}
                     placeholder="Pincode"
                     value={editForm.pincode}
                     onChange={(e) => updateEditField('pincode', e.target.value)}
-                    required
                   />
+                  <FieldError message={editErrors.pincode} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Size in sq ft (Optional)</label>
@@ -569,6 +624,14 @@ const PropertyDetails = () => {
                     placeholder="e.g. 1200"
                     value={editForm.size}
                     onChange={(e) => updateEditField('size', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--muted)]">Active Since (Optional)</label>
+                  <DatePicker
+                    className="w-full px-3 py-2 mt-1 rounded-xl border border-black/10"
+                    value={editForm.activeSince}
+                    onChange={(next) => updateEditField('activeSince', next)}
                   />
                 </div>
                 <div className="md:col-span-2">
@@ -619,7 +682,10 @@ const PropertyDetails = () => {
                 <button
                   type="button"
                   className="btn btn-cancel"
-                  onClick={() => setShowEdit(false)}
+                  onClick={() => {
+                    setEditErrors({});
+                    setShowEdit(false);
+                  }}
                 >
                   Cancel
                 </button>
@@ -634,21 +700,28 @@ const PropertyDetails = () => {
           <div className="w-full max-w-4xl bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="text-lg font-semibold">Add Unit</div>
-              <button className="modal-close-btn" onClick={() => setShowAddUnit(false)} aria-label="Close">
+              <button
+                className="modal-close-btn"
+                onClick={() => {
+                  setUnitErrors({});
+                  setShowAddUnit(false);
+                }}
+                aria-label="Close"
+              >
                 <CloseIcon width={18} height={18} />
               </button>
             </div>
-            <form onSubmit={addUnit} className="space-y-4">
+            <form onSubmit={addUnit} noValidate className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Unit Number</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${unitErrors.unitNumber ? 'input-error' : ''}`}
                     placeholder="Unit number"
                     value={unitForm.unitNumber}
                     onChange={(e) => updateUnitField('unitNumber', e.target.value)}
-                    required
                   />
+                  <FieldError message={unitErrors.unitNumber} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Unit Type</label>
@@ -683,24 +756,32 @@ const PropertyDetails = () => {
                   />
                 </div>
                 <div>
+                  <label className="text-xs text-[var(--muted)]">Active Since (Optional)</label>
+                  <DatePicker
+                    className="w-full px-3 py-2 mt-1 rounded-xl border border-black/10"
+                    value={unitForm.activeSince}
+                    onChange={(next) => updateUnitField('activeSince', next)}
+                  />
+                </div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Monthly Rent</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${unitErrors.monthlyRent ? 'input-error' : ''}`}
                     placeholder="Monthly rent"
                     value={unitForm.monthlyRent}
                     onChange={(e) => updateUnitField('monthlyRent', e.target.value)}
-                    required
                   />
+                  <FieldError message={unitErrors.monthlyRent} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Deposit</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${unitErrors.deposit ? 'input-error' : ''}`}
                     placeholder="Deposit"
                     value={unitForm.deposit}
                     onChange={(e) => updateUnitField('deposit', e.target.value)}
-                    required
                   />
+                  <FieldError message={unitErrors.deposit} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Last Meter Reading</label>
@@ -723,7 +804,10 @@ const PropertyDetails = () => {
                 <button
                   type="button"
                   className="btn btn-cancel"
-                  onClick={() => setShowAddUnit(false)}
+                  onClick={() => {
+                    setUnitErrors({});
+                    setShowAddUnit(false);
+                  }}
                 >
                   Cancel
                 </button>

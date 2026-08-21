@@ -24,6 +24,7 @@ export interface IProperty {
   pincode: string;
   size?: string;
   notes?: string;
+  activeSince?: Date;
   maintenanceCharge?: number;
   electricityUnitRate?: number;
   commonElectricityCharge?: number;
@@ -64,6 +65,7 @@ const propertySchema = new Schema<IProperty>(
     pincode: { type: String, required: true },
     size: { type: String },
     notes: { type: String },
+    activeSince: { type: Date },
     maintenanceCharge: { type: Number, default: 0 },
     electricityUnitRate: { type: Number, default: 0 },
     commonElectricityCharge: { type: Number, default: 0 },

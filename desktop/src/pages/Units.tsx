@@ -9,6 +9,10 @@ import { CloseIcon, UnitsIcon } from '../components/icons';
 import { toast } from '../lib/toast';
 import { confirmDialog } from '../lib/confirmDialog';
 import { formatCurrency } from '../lib/format';
+import FieldError from '../components/FieldError';
+import DatePicker from '../components/DatePicker';
+import { formatDate } from '../lib/dateFormat';
+import { isBlank, isPositiveNumber, isNonNegativeNumber, requiredMsg, type FieldErrors } from '../lib/validation';
 
 const unitTypeLabels: Record<string, string> = {
   single_room: 'Single Room',
@@ -61,10 +65,12 @@ const Units = () => {
     unitType: '1bhk',
     floor: '',
     size: '',
+    activeSince: '',
     monthlyRent: '',
     deposit: '',
     lastMeterReading: ''
   });
+  const [unitErrors, setUnitErrors] = useState<FieldErrors>({});
 
   const loadUnits = async (targetPropertyId: string, targetTab: 'active' | 'deleted', options?: { force?: boolean }) => {
     const archived = targetTab === 'deleted';
@@ -150,14 +156,22 @@ const Units = () => {
 
   const updateUnitField = (key: string, value: string) => {
     setUnitForm((prev) => ({ ...prev, [key]: value }));
+    setUnitErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+
+  const validateUnitForm = () => {
+    const next: FieldErrors = {};
+    if (isBlank(formPropertyId)) next.formPropertyId = requiredMsg('Property');
+    if (isBlank(unitForm.unitNumber)) next.unitNumber = requiredMsg('Unit number');
+    if (!isPositiveNumber(unitForm.monthlyRent)) next.monthlyRent = 'Monthly rent must be greater than 0';
+    if (!isNonNegativeNumber(unitForm.deposit)) next.deposit = 'Deposit must be a valid amount';
+    setUnitErrors(next);
+    return !Object.values(next).some(Boolean);
   };
 
   const addUnit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formPropertyId) {
-      toast.error('Please select a property.');
-      return;
-    }
+    if (!validateUnitForm()) return;
     setLoading(true);
     try {
       await api.post(`/properties/${formPropertyId}/units`, {
@@ -165,6 +179,7 @@ const Units = () => {
         unitType: unitForm.unitType,
         floor: unitForm.floor || undefined,
         size: unitForm.size || undefined,
+        activeSince: unitForm.activeSince || undefined,
         monthlyRent: Number(unitForm.monthlyRent),
         deposit: Number(unitForm.deposit),
         lastMeterReading: unitForm.lastMeterReading ? Number(unitForm.lastMeterReading) : undefined
@@ -176,10 +191,12 @@ const Units = () => {
         unitType: '1bhk',
         floor: '',
         size: '',
+        activeSince: '',
         monthlyRent: '',
         deposit: '',
         lastMeterReading: ''
       });
+      setUnitErrors({});
       setShowAdd(false);
       toast.success('Unit added.');
     } catch (err: any) {
@@ -199,6 +216,12 @@ const Units = () => {
     { key: 'unitNumber', label: 'Unit', accessor: (unit) => unit.unitNumber },
     { key: 'floor', label: 'Floor', accessor: (unit) => unit.floor || '-' },
     { key: 'meterReading', label: 'Meter Reading', accessor: (unit) => unit.lastMeterReading ?? 0 },
+    {
+      key: 'activeSince',
+      label: 'Active Since',
+      sortable: false,
+      accessor: (unit) => (unit.activeSince ? formatDate(unit.activeSince, { day: 'numeric', month: 'short', year: 'numeric' }) : '-')
+    },
     { key: 'rent', label: 'Rent', accessor: (unit) => unit.monthlyRent, render: (unit) => `₹${formatCurrency(unit.monthlyRent)}` },
     {
       key: 'status',
@@ -311,6 +334,7 @@ const Units = () => {
             className="btn btn-primary"
             onClick={() => {
               setFormPropertyId(propertyId);
+              setUnitErrors({});
               setShowAdd(true);
             }}
             disabled={tab !== 'active'}
@@ -367,19 +391,28 @@ const Units = () => {
           <div className="w-full max-w-4xl bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="text-lg font-semibold">Add Unit</div>
-              <button className="modal-close-btn" onClick={() => setShowAdd(false)} aria-label="Close">
+              <button
+                className="modal-close-btn"
+                onClick={() => {
+                  setUnitErrors({});
+                  setShowAdd(false);
+                }}
+                aria-label="Close"
+              >
                 <CloseIcon width={18} height={18} />
               </button>
             </div>
-            <form onSubmit={addUnit} className="space-y-4">
+            <form onSubmit={addUnit} noValidate className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
+                <div className="relative md:col-span-2">
                   <label className="text-xs text-[var(--muted)]">Property</label>
                   <select
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${unitErrors.formPropertyId ? 'input-error' : ''}`}
                     value={formPropertyId}
-                    onChange={(e) => setFormPropertyId(e.target.value)}
-                    required
+                    onChange={(e) => {
+                      setFormPropertyId(e.target.value);
+                      setUnitErrors((prev) => (prev.formPropertyId ? { ...prev, formPropertyId: undefined } : prev));
+                    }}
                   >
                     <option value="">Select property</option>
                     {properties.map((property) => (
@@ -388,16 +421,17 @@ const Units = () => {
                       </option>
                     ))}
                   </select>
+                  <FieldError message={unitErrors.formPropertyId} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Unit Number</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${unitErrors.unitNumber ? 'input-error' : ''}`}
                     placeholder="Unit number"
                     value={unitForm.unitNumber}
                     onChange={(e) => updateUnitField('unitNumber', e.target.value)}
-                    required
                   />
+                  <FieldError message={unitErrors.unitNumber} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Unit Type</label>
@@ -432,24 +466,32 @@ const Units = () => {
                   />
                 </div>
                 <div>
+                  <label className="text-xs text-[var(--muted)]">Active Since (Optional)</label>
+                  <DatePicker
+                    className="w-full px-3 py-2 mt-1 rounded-xl border border-black/10"
+                    value={unitForm.activeSince}
+                    onChange={(next) => updateUnitField('activeSince', next)}
+                  />
+                </div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Monthly Rent</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${unitErrors.monthlyRent ? 'input-error' : ''}`}
                     placeholder="Monthly rent"
                     value={unitForm.monthlyRent}
                     onChange={(e) => updateUnitField('monthlyRent', e.target.value)}
-                    required
                   />
+                  <FieldError message={unitErrors.monthlyRent} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Deposit</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${unitErrors.deposit ? 'input-error' : ''}`}
                     placeholder="Deposit"
                     value={unitForm.deposit}
                     onChange={(e) => updateUnitField('deposit', e.target.value)}
-                    required
                   />
+                  <FieldError message={unitErrors.deposit} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Last Meter Reading</label>
@@ -469,7 +511,14 @@ const Units = () => {
                 >
                   {loading ? 'Saving...' : 'Save Unit'}
                 </button>
-                <button type="button" className="btn btn-cancel" onClick={() => setShowAdd(false)}>
+                <button
+                  type="button"
+                  className="btn btn-cancel"
+                  onClick={() => {
+                    setUnitErrors({});
+                    setShowAdd(false);
+                  }}
+                >
                   Cancel
                 </button>
               </div>

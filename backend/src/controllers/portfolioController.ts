@@ -130,7 +130,13 @@ export const updatePortfolioSettings = asyncHandler(async (req, res) => {
   if (!portfolio) throw new HttpError(404, 'Portfolio not found');
   const actingMembership = ensureManagingMembership(portfolio, req);
   if (actingMembership.role !== 'owner') {
-    throw new HttpError(403, 'Only the owner can update due date settings');
+    throw new HttpError(403, 'Only the owner can update portfolio settings');
+  }
+
+  if (req.body?.name !== undefined) {
+    const trimmedName = String(req.body.name).trim();
+    if (!trimmedName) throw new HttpError(400, 'Portfolio name cannot be empty');
+    portfolio.name = trimmedName;
   }
 
   const normalizeDay = (value: any, field: string) => {

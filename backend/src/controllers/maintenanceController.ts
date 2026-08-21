@@ -5,6 +5,7 @@ import { MaintenanceExpense } from '../models/MaintenanceExpense';
 import { Payment } from '../models/Payment';
 import { ensureBase64OrThrow } from '../utils/base64';
 import { optionalString, requireString } from '../utils/request';
+import { requireFields, requirePositive } from '../utils/validation';
 import { emitPortfolioEvent } from '../ws/emit';
 import { buildPaginatedResult, buildSearchRegexStage, isPaginatedRequest, parseListQuery, runPaginatedAggregate } from '../utils/listQuery';
 
@@ -64,7 +65,8 @@ export const getMaintenance = asyncHandler(async (req, res) => {
 export const createMaintenance = asyncHandler(async (req, res) => {
   const propertyId = requireString(req.params.propertyId, 'propertyId');
   const { date, category, description, amount, paidTo, receiptBase64 } = req.body;
-  if (!date || !category || amount == null) throw new HttpError(400, 'Missing maintenance fields');
+  requireFields(req.body, ['date', 'category', 'amount']);
+  requirePositive(amount, 'amount');
 
   ensureBase64OrThrow(receiptBase64, 'receiptBase64');
 
@@ -101,6 +103,13 @@ export const updateMaintenance = asyncHandler(async (req, res) => {
   if (!record) throw new HttpError(404, 'Maintenance record not found');
 
   ensureBase64OrThrow(req.body.receiptBase64, 'receiptBase64');
+  if (Object.prototype.hasOwnProperty.call(req.body, 'category') && !String(req.body.category ?? '').trim()) {
+    throw new HttpError(400, 'category cannot be empty', { fields: ['category'] });
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, 'date') && !req.body.date) {
+    throw new HttpError(400, 'date cannot be empty', { fields: ['date'] });
+  }
+  if (req.body.amount != null) requirePositive(req.body.amount, 'amount');
 
   Object.assign(record, req.body);
   await record.save();

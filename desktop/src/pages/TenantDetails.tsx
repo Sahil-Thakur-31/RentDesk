@@ -12,6 +12,11 @@ import { SkeletonDetailHeader, SkeletonStatRow, SkeletonTable } from '../compone
 import { toast } from '../lib/toast';
 import { confirmDialog } from '../lib/confirmDialog';
 import { formatCurrency } from '../lib/format';
+import FieldError from '../components/FieldError';
+import DatePicker from '../components/DatePicker';
+import ReceiptModal from '../components/ReceiptModal';
+import { buildRentReceipt, buildUtilityBillReceipt, type ReceiptData } from '../lib/receipt';
+import { isBlank, isPositiveNumber, requiredMsg, type FieldErrors } from '../lib/validation';
 
 const paymentStatusTone = (status: string): BadgeTone => {
   if (status === 'paid') return 'success';
@@ -43,6 +48,33 @@ const formatPaymentType = (payment: any) => {
   if (payment.type === 'rent') return 'Rent';
   return payment.direction === 'out' ? 'Other (Cash Out)' : 'Other (Cash In)';
 };
+
+const buildGenericPaymentReceipt = (
+  payment: any,
+  propertyName: string,
+  unitNumber?: string,
+  propertyAddress?: string,
+  tenantContext?: { fullName?: string; phone?: string; depositAmount?: number }
+): ReceiptData => ({
+  title: `${formatPaymentType(payment)} Receipt`,
+  receiptNo: String(payment._id || '').slice(-8).toUpperCase(),
+  propertyName,
+  propertyAddress,
+  tenantName: tenantContext?.fullName,
+  unitNumber,
+  amountLabel: payment.direction === 'out' ? 'Amount Paid Out' : 'Amount',
+  amount: payment.amount || 0,
+  date: formatDate(payment.date),
+  items: [
+    { label: 'Type', value: formatPaymentType(payment) },
+    { label: 'Date', value: formatDate(payment.date) },
+    ...(tenantContext?.depositAmount != null
+      ? [{ label: 'Total Deposit Required', value: `₹${formatCurrency(tenantContext.depositAmount)}` }]
+      : []),
+    ...(tenantContext?.phone ? [{ label: 'Tenant Phone', value: tenantContext.phone }] : []),
+    { label: 'Notes', value: payment.notes || '-' }
+  ]
+});
 
 const TenantDetails = () => {
   const { propertyId, tenantId } = useParams();
@@ -82,6 +114,12 @@ const TenantDetails = () => {
     idProofNumber: '',
     emergencyContact: ''
   });
+  const [collectError, setCollectError] = useState<string | undefined>();
+  const [addPaymentErrors, setAddPaymentErrors] = useState<FieldErrors>({});
+  const [editTenantErrors, setEditTenantErrors] = useState<FieldErrors>({});
+  const [propertyName, setPropertyName] = useState('-');
+  const [propertyAddress, setPropertyAddress] = useState<string | undefined>();
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   const load = async (options?: { force?: boolean }) => {
     if (!propertyId || !tenantId) return;
@@ -107,6 +145,8 @@ const TenantDetails = () => {
     ]);
     setUtilityBills(bills || []);
     setMaintenanceCharge(propertyData?.maintenanceCharge || 0);
+    setPropertyName(propertyData?.name || '-');
+    setPropertyAddress(propertyData?.address);
   };
 
   useEffect(() => {
@@ -186,10 +226,15 @@ const TenantDetails = () => {
     if (!collectRentRecord || !propertyId) return;
     const amount = Number(collectAmount);
     const remaining = Math.max(0, (collectRentRecord.rentAmount || 0) - (collectRentRecord.paidAmount || 0));
-    if (!amount || amount <= 0 || amount > remaining) {
-      toast.error('Enter an amount greater than 0 and not exceeding the remaining rent.');
+    if (!amount || amount <= 0) {
+      setCollectError('Enter an amount greater than 0');
       return;
     }
+    if (amount > remaining) {
+      setCollectError('Cannot exceed remaining rent');
+      return;
+    }
+    setCollectError(undefined);
     setCollectSaving(true);
     try {
       await api.post(`/properties/${propertyId}/rent-records/${collectRentRecord._id}/collect`, {
@@ -246,10 +291,12 @@ const TenantDetails = () => {
     e.preventDefault();
     if (!propertyId || !tenant) return;
     const amount = Number(addPaymentForm.amount);
-    if (!amount || amount <= 0) {
-      toast.error('Enter a valid amount.');
-      return;
-    }
+    const nextErrors: FieldErrors = {};
+    if (!isPositiveNumber(amount)) nextErrors.amount = 'Enter a valid amount';
+    if (addPaymentForm.type === 'rent' && isBlank(addPaymentForm.month)) nextErrors.month = requiredMsg('Month');
+    if (addPaymentForm.type !== 'rent' && isBlank(addPaymentForm.date)) nextErrors.date = requiredMsg('Date');
+    setAddPaymentErrors(nextErrors);
+    if (Object.values(nextErrors).some(Boolean)) return;
     setAddPaymentSaving(true);
     try {
       if (addPaymentForm.type === 'rent') {
@@ -301,6 +348,7 @@ const TenantDetails = () => {
         notes: '',
         direction: 'in'
       });
+      setAddPaymentErrors({});
       await Promise.all([load({ force: true }), loadDueExtras({ force: true })]);
       toast.success('Payment recorded.');
     } catch (err: any) {
@@ -319,16 +367,23 @@ const TenantDetails = () => {
       idProofNumber: tenant.idProofNumber || '',
       emergencyContact: tenant.emergencyContact || ''
     });
+    setEditTenantErrors({});
     setShowEditTenant(true);
   };
 
   const updateEditTenantField = (key: string, value: string) => {
     setEditTenantForm((prev) => ({ ...prev, [key]: value }));
+    setEditTenantErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
   };
 
   const saveTenantEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!propertyId || !tenantId) return;
+    const next: FieldErrors = {};
+    if (isBlank(editTenantForm.fullName)) next.fullName = requiredMsg('Full name');
+    if (isBlank(editTenantForm.phone)) next.phone = requiredMsg('Phone');
+    setEditTenantErrors(next);
+    if (Object.values(next).some(Boolean)) return;
     setEditTenantSaving(true);
     try {
       await api.patch(`/properties/${propertyId}/tenants/${tenantId}`, {
@@ -391,6 +446,7 @@ const TenantDetails = () => {
             setRecordsTab('rentRecords');
             setCollectRentRecord(oldestUnpaidRentRecord);
             setCollectAmount(String(Math.max(0, (oldestUnpaidRentRecord.rentAmount || 0) - (oldestUnpaidRentRecord.paidAmount || 0))));
+            setCollectError(undefined);
           }
         }
       : null,
@@ -423,7 +479,31 @@ const TenantDetails = () => {
     { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${formatCurrency(payment.amount)}` },
     { key: 'date', label: 'Date', accessor: (payment) => new Date(payment.date).getTime(), render: (payment) => formatDate(payment.date) },
     { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' },
-    { key: 'status', label: 'Status', sortable: false, render: () => <Badge tone="success">Paid</Badge> }
+    { key: 'status', label: 'Status', sortable: false, render: () => <Badge tone="success">Paid</Badge> },
+    {
+      key: 'view',
+      label: '',
+      sortable: false,
+      render: (payment) => (
+        <button
+          type="button"
+          className="icon-btn h-8 w-8"
+          onClick={(e) => {
+            e.stopPropagation();
+            setReceipt(
+              buildGenericPaymentReceipt(payment, propertyName, tenant?.assignedUnit?.unitNumber, propertyAddress, {
+                fullName: tenant?.fullName,
+                phone: tenant?.phone,
+                depositAmount: tenant?.depositAmount
+              })
+            );
+          }}
+          title="View Receipt"
+        >
+          <EyeIcon width={15} height={15} />
+        </button>
+      )
+    }
   ];
 
   const rentRecordColumns: TableColumn<any>[] = [
@@ -444,20 +524,35 @@ const TenantDetails = () => {
       key: 'actions',
       label: 'Actions',
       sortable: false,
-      render: (record) =>
-        record.status !== 'paid' ? (
-          <button
-            className="btn btn-sm btn-success"
-            onClick={() => {
-              setCollectRentRecord(record);
-              setCollectAmount(String(Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0))));
-            }}
-          >
-            Pay
-          </button>
-        ) : (
-          <span className="text-xs text-[var(--muted)]">-</span>
-        )
+      render: (record) => (
+        <div className="flex items-center gap-1.5">
+          {record.status !== 'paid' && (
+            <button
+              className="btn btn-sm btn-success"
+              onClick={() => {
+                setCollectRentRecord(record);
+                setCollectAmount(String(Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0))));
+                setCollectError(undefined);
+              }}
+            >
+              Pay
+            </button>
+          )}
+          {(record.paidAmount || 0) > 0 && (
+            <button
+              type="button"
+              className="icon-btn h-8 w-8"
+              onClick={(e) => {
+                e.stopPropagation();
+                setReceipt(buildRentReceipt(record, propertyName, propertyAddress));
+              }}
+              title="View Receipt"
+            >
+              <EyeIcon width={15} height={15} />
+            </button>
+          )}
+        </div>
+      )
     }
   ];
 
@@ -480,18 +575,30 @@ const TenantDetails = () => {
       key: 'actions',
       label: 'Actions',
       sortable: false,
-      render: (bill) =>
-        bill.status !== 'paid' ? (
+      render: (bill) => (
+        <div className="flex items-center gap-1.5">
+          {bill.status !== 'paid' && (
+            <button
+              className="btn btn-sm btn-success"
+              disabled={utilitySavingId === bill._id}
+              onClick={() => markUtilityBillPaid(bill)}
+            >
+              {utilitySavingId === bill._id ? 'Saving...' : 'Pay'}
+            </button>
+          )}
           <button
-            className="btn btn-sm btn-success"
-            disabled={utilitySavingId === bill._id}
-            onClick={() => markUtilityBillPaid(bill)}
+            type="button"
+            className="icon-btn h-8 w-8"
+            onClick={(e) => {
+              e.stopPropagation();
+              setReceipt(buildUtilityBillReceipt(bill, propertyName, propertyAddress));
+            }}
+            title="View Receipt"
           >
-            {utilitySavingId === bill._id ? 'Saving...' : 'Pay'}
+            <EyeIcon width={15} height={15} />
           </button>
-        ) : (
-          <span className="text-xs text-[var(--muted)]">-</span>
-        )
+        </div>
+      )
     }
   ];
 
@@ -515,7 +622,17 @@ const TenantDetails = () => {
             {maintenanceSaving ? 'Saving...' : 'Pay'}
           </button>
         ) : (
-          <span className="text-xs text-[var(--muted)]">-</span>
+          <button
+            type="button"
+            className="icon-btn h-8 w-8"
+            onClick={(e) => {
+              e.stopPropagation();
+              setReceipt(buildGenericPaymentReceipt(row, propertyName, tenant?.assignedUnit?.unitNumber));
+            }}
+            title="View Receipt"
+          >
+            <EyeIcon width={15} height={15} />
+          </button>
         )
     }
   ];
@@ -675,7 +792,14 @@ const TenantDetails = () => {
             emptyIcon={<TransactionsIcon width={22} height={22} />}
             emptyTitle="No payments yet"
             extraToolbar={
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowAddPayment(true)}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  setAddPaymentErrors({});
+                  setShowAddPayment(true);
+                }}
+              >
                 Add Payment
               </button>
             }
@@ -750,28 +874,44 @@ const TenantDetails = () => {
               </div>
               <button
                 className="modal-close-btn"
-                onClick={() => setCollectRentRecord(null)}
+                onClick={() => {
+                  setCollectError(undefined);
+                  setCollectRentRecord(null);
+                }}
                 disabled={collectSaving}
                 aria-label="Close"
               >
                 <CloseIcon width={18} height={18} />
               </button>
             </div>
-            <label className="text-xs text-[var(--muted)]">Amount Received</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              className="mt-1 w-full px-3 py-2"
-              value={collectAmount}
-              onChange={(e) => setCollectAmount(e.target.value)}
-              autoFocus
-            />
+            <div className="relative">
+              <label className="text-xs text-[var(--muted)]">Amount Received</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className={`mt-1 w-full px-3 py-2 ${collectError ? 'input-error' : ''}`}
+                value={collectAmount}
+                onChange={(e) => {
+                  setCollectAmount(e.target.value);
+                  setCollectError(undefined);
+                }}
+                autoFocus
+              />
+              <FieldError message={collectError} />
+            </div>
             <div className="mt-4 flex items-center gap-3">
               <button className="btn btn-primary" disabled={collectSaving} onClick={collectRent}>
                 {collectSaving ? 'Saving...' : 'Collect'}
               </button>
-              <button className="btn btn-cancel" disabled={collectSaving} onClick={() => setCollectRentRecord(null)}>
+              <button
+                className="btn btn-cancel"
+                disabled={collectSaving}
+                onClick={() => {
+                  setCollectError(undefined);
+                  setCollectRentRecord(null);
+                }}
+              >
                 Cancel
               </button>
             </div>
@@ -789,7 +929,10 @@ const TenantDetails = () => {
               </div>
               <button
                 className="modal-close-btn"
-                onClick={() => setShowAddPayment(false)}
+                onClick={() => {
+                  setAddPaymentErrors({});
+                  setShowAddPayment(false);
+                }}
                 disabled={addPaymentSaving}
                 aria-label="Close"
               >
@@ -797,7 +940,7 @@ const TenantDetails = () => {
               </button>
             </div>
 
-            <form onSubmit={submitAddPayment} className="space-y-4">
+            <form onSubmit={submitAddPayment} noValidate className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-[var(--muted)]">Payment Type</label>
@@ -816,38 +959,46 @@ const TenantDetails = () => {
                 </div>
 
                 {addPaymentForm.type === 'rent' ? (
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Month</label>
-                    <input
-                      type="month"
-                      className="w-full px-3 py-2 mt-1"
+                    <DatePicker
+                      picker="month"
+                      className={`w-full px-3 py-2 mt-1 rounded-xl border border-black/10 ${addPaymentErrors.month ? 'input-error' : ''}`}
                       value={addPaymentForm.month}
-                      onChange={(e) => setAddPaymentForm((prev) => ({ ...prev, month: e.target.value }))}
-                      required
+                      onChange={(next) => {
+                        setAddPaymentForm((prev) => ({ ...prev, month: next }));
+                        setAddPaymentErrors((prev) => (prev.month ? { ...prev, month: undefined } : prev));
+                      }}
                     />
+                    <FieldError message={addPaymentErrors.month} />
                   </div>
                 ) : (
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Date</label>
-                    <input
-                      type="date"
-                      className="w-full px-3 py-2 mt-1"
+                    <DatePicker
+                      className={`w-full px-3 py-2 mt-1 rounded-xl border border-black/10 ${addPaymentErrors.date ? 'input-error' : ''}`}
                       value={addPaymentForm.date}
-                      onChange={(e) => setAddPaymentForm((prev) => ({ ...prev, date: e.target.value }))}
-                      required
+                      onChange={(next) => {
+                        setAddPaymentForm((prev) => ({ ...prev, date: next }));
+                        setAddPaymentErrors((prev) => (prev.date ? { ...prev, date: undefined } : prev));
+                      }}
                     />
+                    <FieldError message={addPaymentErrors.date} />
                   </div>
                 )}
 
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Amount</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${addPaymentErrors.amount ? 'input-error' : ''}`}
                     placeholder="Amount"
                     value={addPaymentForm.amount}
-                    onChange={(e) => setAddPaymentForm((prev) => ({ ...prev, amount: e.target.value }))}
-                    required
+                    onChange={(e) => {
+                      setAddPaymentForm((prev) => ({ ...prev, amount: e.target.value }));
+                      setAddPaymentErrors((prev) => (prev.amount ? { ...prev, amount: undefined } : prev));
+                    }}
                   />
+                  <FieldError message={addPaymentErrors.amount} />
                 </div>
 
                 {addPaymentForm.type === 'other' && (
@@ -895,7 +1046,15 @@ const TenantDetails = () => {
                 <button type="submit" className="btn btn-primary" disabled={addPaymentSaving}>
                   {addPaymentSaving ? 'Saving...' : 'Save Payment'}
                 </button>
-                <button type="button" className="btn btn-cancel" disabled={addPaymentSaving} onClick={() => setShowAddPayment(false)}>
+                <button
+                  type="button"
+                  className="btn btn-cancel"
+                  disabled={addPaymentSaving}
+                  onClick={() => {
+                    setAddPaymentErrors({});
+                    setShowAddPayment(false);
+                  }}
+                >
                   Cancel
                 </button>
               </div>
@@ -909,31 +1068,38 @@ const TenantDetails = () => {
           <div className="w-full max-w-lg bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="text-lg font-semibold">Edit Tenant</div>
-              <button className="modal-close-btn" onClick={() => setShowEditTenant(false)} aria-label="Close">
+              <button
+                className="modal-close-btn"
+                onClick={() => {
+                  setEditTenantErrors({});
+                  setShowEditTenant(false);
+                }}
+                aria-label="Close"
+              >
                 <CloseIcon width={18} height={18} />
               </button>
             </div>
-            <form onSubmit={saveTenantEdit} className="space-y-4">
+            <form onSubmit={saveTenantEdit} noValidate className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Full Name</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${editTenantErrors.fullName ? 'input-error' : ''}`}
                     placeholder="Full name"
                     value={editTenantForm.fullName}
                     onChange={(e) => updateEditTenantField('fullName', e.target.value)}
-                    required
                   />
+                  <FieldError message={editTenantErrors.fullName} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Phone</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${editTenantErrors.phone ? 'input-error' : ''}`}
                     placeholder="Phone"
                     value={editTenantForm.phone}
                     onChange={(e) => updateEditTenantField('phone', e.target.value)}
-                    required
                   />
+                  <FieldError message={editTenantErrors.phone} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Email (Optional)</label>
@@ -976,7 +1142,15 @@ const TenantDetails = () => {
                 <button type="submit" className="btn btn-primary" disabled={editTenantSaving}>
                   {editTenantSaving ? 'Saving...' : 'Save Tenant'}
                 </button>
-                <button type="button" className="btn btn-cancel" disabled={editTenantSaving} onClick={() => setShowEditTenant(false)}>
+                <button
+                  type="button"
+                  className="btn btn-cancel"
+                  disabled={editTenantSaving}
+                  onClick={() => {
+                    setEditTenantErrors({});
+                    setShowEditTenant(false);
+                  }}
+                >
                   Cancel
                 </button>
               </div>
@@ -984,6 +1158,7 @@ const TenantDetails = () => {
           </div>
         </div>
       )}
+      <ReceiptModal data={receipt} onClose={() => setReceipt(null)} />
     </div>
   );
 };

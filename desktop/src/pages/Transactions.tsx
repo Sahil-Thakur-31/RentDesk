@@ -4,11 +4,24 @@ import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import Badge, { type BadgeTone } from '../components/Badge';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
-import { CloseIcon, TransactionsIcon } from '../components/icons';
+import { CloseIcon, EyeIcon, TransactionsIcon } from '../components/icons';
 import { formatDate, formatMonthKey, formatMonthYear, getCurrentDateValue, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
 import { cachedGet, invalidateByTag, isCached, useCachedQuery } from '../lib/queryCache';
 import { toast } from '../lib/toast';
 import { formatCurrency } from '../lib/format';
+import FieldError from '../components/FieldError';
+import DatePicker from '../components/DatePicker';
+import ReceiptModal from '../components/ReceiptModal';
+import {
+  buildDepositReceipt,
+  buildMaintenanceCollectedReceipt,
+  buildMaintenanceExpenseReceipt,
+  buildOtherPaymentReceipt,
+  buildRentReceipt,
+  buildUtilityBillReceipt,
+  type ReceiptData
+} from '../lib/receipt';
+import { isBlank, isPositiveNumber, requiredMsg, type FieldErrors } from '../lib/validation';
 
 type TabKey = 'all' | 'rent' | 'electricity' | 'maintenance' | 'deposit' | 'others';
 type MaintenanceView = 'collected' | 'spent';
@@ -21,6 +34,9 @@ const statusTone = (status: string): BadgeTone => {
 
 const getPropertyName = (item: any, properties: any[], propertyId: string) =>
   item._propertyName || properties.find((property) => property._id === propertyId)?.name || '-';
+
+const getPropertyAddress = (item: any, properties: any[], propertyId: string) =>
+  properties.find((property) => property._id === (item._propertyId || propertyId))?.address;
 
 const getActionDateFromMonth = (monthValue: string) => {
   const [selectedYear, selectedMonth] = monthValue.split('-').map(Number);
@@ -96,6 +112,9 @@ const Transactions = () => {
     notes: '',
     direction: 'in' as 'in' | 'out'
   });
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const clearError = (key: string) => setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const selectedRentTenant = formTenants.find((tenant) => tenant._id === rentForm.tenantId);
   const selectedDepositTenant = formTenants.find((tenant) => tenant._id === depositForm.tenantId);
   const selectedElectricityRow = electricityRows.find((row) => String(row.unitId) === String(electricityForm.unitId));
@@ -161,7 +180,8 @@ const Transactions = () => {
         responses.flatMap((result, index) =>
           (result[0] || []).map((record: any) => ({
             ...record,
-            _propertyName: properties[index].name
+            _propertyName: properties[index].name,
+            _propertyId: properties[index]._id
           }))
         )
       );
@@ -169,7 +189,8 @@ const Transactions = () => {
         responses.flatMap((result, index) =>
           (result[1] || []).map((bill: any) => ({
             ...bill,
-            _propertyName: properties[index].name
+            _propertyName: properties[index].name,
+            _propertyId: properties[index]._id
           }))
         )
       );
@@ -177,7 +198,8 @@ const Transactions = () => {
         responses.flatMap((result, index) =>
           (result[2] || []).map((record: any) => ({
             ...record,
-            _propertyName: properties[index].name
+            _propertyName: properties[index].name,
+            _propertyId: properties[index]._id
           }))
         )
       );
@@ -185,7 +207,8 @@ const Transactions = () => {
         responses.flatMap((result, index) =>
           (result[3] || []).map((payment: any) => ({
             ...payment,
-            _propertyName: properties[index].name
+            _propertyName: properties[index].name,
+            _propertyId: properties[index]._id
           }))
         )
       );
@@ -247,6 +270,7 @@ const Transactions = () => {
       notes: '',
       direction: 'in'
     });
+    setErrors({});
   }, [showAddPayment, propertyId, monthFilter]);
 
   useEffect(() => {
@@ -260,7 +284,7 @@ const Transactions = () => {
     const loadFormData = async () => {
       const [unitsData, tenantsData] = await Promise.all([
         cachedGet(`/properties/${formPropertyId}/units`, { archived: false }),
-        cachedGet(`/properties/${formPropertyId}/tenants`, { status: 'active' })
+        cachedGet(`/properties/${formPropertyId}/tenants`, {})
       ]);
       setFormUnits(unitsData || []);
       setFormTenants(tenantsData || []);
@@ -268,6 +292,29 @@ const Transactions = () => {
 
     loadFormData();
   }, [showAddPayment, formPropertyId]);
+
+  const rentEligibleTenants = useMemo(() => {
+    const [selYear, selMonth] = rentForm.month.split('-').map(Number);
+    if (!selYear || !selMonth) return formTenants;
+    const monthStart = new Date(selYear, selMonth - 1, 1);
+    const monthEnd = new Date(selYear, selMonth, 0, 23, 59, 59, 999);
+    return formTenants.filter((tenant) => {
+      const movedIn = tenant.movedInDate ? new Date(tenant.movedInDate) : null;
+      const movedOut = tenant.movedOutDate ? new Date(tenant.movedOutDate) : null;
+      if (movedIn && movedIn > monthEnd) return false;
+      if (movedOut && movedOut < monthStart) return false;
+      return true;
+    });
+  }, [formTenants, rentForm.month]);
+
+  const activeFormTenants = useMemo(() => formTenants.filter((tenant) => tenant.isActive), [formTenants]);
+
+  useEffect(() => {
+    if (rentForm.tenantId && !rentEligibleTenants.some((tenant) => tenant._id === rentForm.tenantId)) {
+      setRentForm((prev) => ({ ...prev, tenantId: '' }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rentEligibleTenants]);
 
   useEffect(() => {
     if (!showAddPayment || !formPropertyId || addType !== 'electricity') {
@@ -375,6 +422,7 @@ const Transactions = () => {
     const expenseRows = filteredMaintenance.map((record) => ({
       _id: `expense-${record._id}`,
       propertyName: getPropertyName(record, properties, propertyId),
+      propertyAddress: getPropertyAddress(record, properties, propertyId),
       date: record.date,
       category: record.category || 'Expense',
       paidTo: record.paidTo || '-',
@@ -385,6 +433,7 @@ const Transactions = () => {
     const paymentRows = maintenanceSpentPayments.map((payment) => ({
       _id: `payment-${payment._id}`,
       propertyName: getPropertyName(payment, properties, propertyId),
+      propertyAddress: getPropertyAddress(payment, properties, propertyId),
       date: payment.date,
       category: 'Maintenance Spent',
       paidTo: payment.paidTo || '-',
@@ -399,7 +448,10 @@ const Transactions = () => {
   const allTransactions = useMemo(() => {
     const rentItems = filteredRentRecords.map((record) => ({
       _id: `rent-${record._id}`,
+      _kind: 'rent' as const,
+      _original: record,
       propertyName: getPropertyName(record, properties, propertyId),
+      propertyAddress: getPropertyAddress(record, properties, propertyId),
       category: 'Rent',
       details: `${record.tenantId?.fullName || 'Tenant'} • Unit ${record.unitId?.unitNumber || '-'}`,
       amount: record.paidAmount || record.rentAmount || 0,
@@ -409,7 +461,10 @@ const Transactions = () => {
 
     const electricityItems = electricityBills.map((bill) => ({
       _id: `utility-${bill._id}`,
+      _kind: 'electricity' as const,
+      _original: bill,
       propertyName: getPropertyName(bill, properties, propertyId),
+      propertyAddress: getPropertyAddress(bill, properties, propertyId),
       category: 'Electricity',
       details: `Unit ${bill.unitId?.unitNumber || '-'} • ${formatMonthKey(bill.month)}`,
       amount: bill.amount || 0,
@@ -419,7 +474,10 @@ const Transactions = () => {
 
     const maintenanceItems = filteredMaintenance.map((record) => ({
       _id: `maintenance-${record._id}`,
+      _kind: 'maintenanceExpense' as const,
+      _original: record,
       propertyName: getPropertyName(record, properties, propertyId),
+      propertyAddress: getPropertyAddress(record, properties, propertyId),
       category: 'Maintenance Spent',
       details: `${record.category || 'Expense'}${record.paidTo ? ` - ${record.paidTo}` : ''}`,
       amount: record.amount || 0,
@@ -427,23 +485,30 @@ const Transactions = () => {
       status: 'paid'
     }));
 
-    const maintenancePaymentItems = [...maintenanceCollectedPayments, ...maintenanceSpentPayments].map((payment) => ({
-      _id: `payment-maintenance-${payment._id}`,
-      propertyName: getPropertyName(payment, properties, propertyId),
-      category: String(payment.notes || '').toLowerCase().includes('maintenance collected')
-        ? 'Maintenance Collected'
-        : 'Maintenance Spent',
-      details:
-        payment.notes ||
-        `${payment.tenantId?.fullName || '-'}${payment.unitId?.unitNumber ? ` - ${payment.unitId.unitNumber}` : ''}`,
-      amount: payment.amount || 0,
-      date: payment.date,
-      status: 'paid'
-    }));
+    const maintenancePaymentItems = [...maintenanceCollectedPayments, ...maintenanceSpentPayments].map((payment) => {
+      const isCollected = String(payment.notes || '').toLowerCase().includes('maintenance collected');
+      return {
+        _id: `payment-maintenance-${payment._id}`,
+        _kind: isCollected ? 'maintenanceCollected' : 'maintenanceSpentPayment',
+        _original: payment,
+        propertyName: getPropertyName(payment, properties, propertyId),
+        propertyAddress: getPropertyAddress(payment, properties, propertyId),
+        category: isCollected ? 'Maintenance Collected' : 'Maintenance Spent',
+        details:
+          payment.notes ||
+          `${payment.tenantId?.fullName || '-'}${payment.unitId?.unitNumber ? ` - ${payment.unitId.unitNumber}` : ''}`,
+        amount: payment.amount || 0,
+        date: payment.date,
+        status: 'paid'
+      };
+    });
 
     const paymentItems = [...depositPayments, ...otherPayments].map((payment) => ({
       _id: `payment-${payment._id}`,
+      _kind: payment.type === 'deposit' || payment.type === 'refund' ? payment.type : 'other',
+      _original: payment,
       propertyName: getPropertyName(payment, properties, propertyId),
+      propertyAddress: getPropertyAddress(payment, properties, propertyId),
       category:
         payment.type === 'deposit'
           ? 'Deposit'
@@ -495,14 +560,59 @@ const Transactions = () => {
   const closeAddPaymentModal = () => {
     setShowAddPayment(false);
     setFormLoading(false);
+    setErrors({});
+  };
+
+  const validateAddPayment = () => {
+    const next: FieldErrors = {};
+    if (isBlank(formPropertyId)) next.formPropertyId = requiredMsg('Property');
+
+    if (addType === 'rent') {
+      if (isBlank(rentForm.tenantId)) next.tenantId = requiredMsg('Tenant');
+      if (isBlank(rentForm.month)) next.month = requiredMsg('Month');
+      if (!isPositiveNumber(rentForm.amount)) next.amount = 'Enter a valid rent amount';
+      else if (rentRemainingAmount > 0 && Number(rentForm.amount) > rentRemainingAmount) {
+        next.amount = `Cannot exceed remaining rent of ₹${formatCurrency(rentRemainingAmount)}`;
+      }
+    }
+
+    if (addType === 'electricity') {
+      if (isBlank(electricityForm.unitId)) next.unitId = requiredMsg('Unit');
+      if (isBlank(electricityForm.month)) next.month = requiredMsg('Month');
+      const currentReading = Number(electricityForm.currentReading);
+      if (isBlank(electricityForm.currentReading)) {
+        next.currentReading = requiredMsg('Current reading');
+      } else if (selectedElectricityRow && currentReading <= Number(selectedElectricityRow.lastReading || 0)) {
+        next.currentReading = `Must be greater than ${selectedElectricityRow.lastReading || 0}`;
+      } else if (selectedElectricityRow?.nextReading != null && currentReading > Number(selectedElectricityRow.nextReading)) {
+        next.currentReading = `Cannot exceed next saved reading ${selectedElectricityRow.nextReading}`;
+      }
+    }
+
+    if (addType === 'maintenance') {
+      if (isBlank(maintenanceForm.date)) next.date = requiredMsg('Date');
+      if (isBlank(maintenanceForm.category)) next.category = requiredMsg('Category');
+      if (!isPositiveNumber(maintenanceForm.amount)) next.amount = 'Enter a valid amount';
+    }
+
+    if (addType === 'deposit') {
+      if (isBlank(depositForm.tenantId)) next.tenantId = requiredMsg('Tenant');
+      if (!isPositiveNumber(depositForm.amount)) next.amount = 'Enter a valid amount';
+      if (isBlank(depositForm.date)) next.date = requiredMsg('Date');
+    }
+
+    if (addType === 'others') {
+      if (!isPositiveNumber(otherForm.amount)) next.amount = 'Enter a valid amount';
+      if (isBlank(otherForm.date)) next.date = requiredMsg('Date');
+    }
+
+    setErrors(next);
+    return !Object.values(next).some(Boolean);
   };
 
   const submitAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formPropertyId) {
-      toast.error('Select a property.');
-      return;
-    }
+    if (!validateAddPayment()) return;
 
     setFormLoading(true);
     try {
@@ -511,9 +621,6 @@ const Transactions = () => {
           throw new Error('Select a tenant with an assigned unit.');
         }
         const amount = Number(rentForm.amount);
-        if (!amount || amount <= 0) {
-          throw new Error('Enter a valid rent amount.');
-        }
         const [rentYear, rentMonth] = rentForm.month.split('-').map(Number);
         const existingRes = await api.get(`/properties/${formPropertyId}/rent-records`, {
           params: { month: rentMonth, year: rentYear }
@@ -553,15 +660,6 @@ const Transactions = () => {
         if (!selectedElectricityRow) {
           throw new Error('Select a unit.');
         }
-        if (!currentReading || currentReading <= Number(selectedElectricityRow.lastReading || 0)) {
-          throw new Error(`Current reading must be greater than ${selectedElectricityRow.lastReading || 0}.`);
-        }
-        if (
-          selectedElectricityRow.nextReading != null &&
-          currentReading > Number(selectedElectricityRow.nextReading)
-        ) {
-          throw new Error(`Current reading cannot exceed next saved reading ${selectedElectricityRow.nextReading}.`);
-        }
         const existingBillsRes = await api.get(`/properties/${formPropertyId}/utility-bills`, {
           params: {
             billType: 'electricity',
@@ -588,9 +686,6 @@ const Transactions = () => {
 
       if (addType === 'maintenance') {
         const amount = Number(maintenanceForm.amount);
-        if (!maintenanceForm.category || !amount || amount <= 0) {
-          throw new Error('Enter maintenance category and amount.');
-        }
         await api.post(`/properties/${formPropertyId}/maintenance`, {
           date: maintenanceForm.date,
           category: maintenanceForm.category,
@@ -601,10 +696,10 @@ const Transactions = () => {
       }
 
       if (addType === 'deposit') {
-        const amount = Number(depositForm.amount);
-        if (!selectedDepositTenant?._id || !amount || amount <= 0) {
-          throw new Error('Select a tenant and enter a valid amount.');
+        if (!selectedDepositTenant?._id) {
+          throw new Error('Select a tenant.');
         }
+        const amount = Number(depositForm.amount);
         await api.post(`/properties/${formPropertyId}/payments`, {
           type: depositForm.type,
           amount,
@@ -619,9 +714,6 @@ const Transactions = () => {
 
       if (addType === 'others') {
         const amount = Number(otherForm.amount);
-        if (!amount || amount <= 0) {
-          throw new Error('Enter a valid amount.');
-        }
         await api.post(`/properties/${formPropertyId}/payments`, {
           type: 'other',
           amount,
@@ -651,6 +743,49 @@ const Transactions = () => {
     { value: 'unpaid', label: 'Unpaid' }
   ];
 
+  // Every tab dispatches through these same shared builders (desktop/src/lib/receipt.ts)
+  // so a receipt for a given record looks identical no matter which page it's viewed from.
+  const dispatchAllRowReceipt = (item: any): ReceiptData => {
+    const propertyName = item.propertyName;
+    const propertyAddress = item.propertyAddress;
+    switch (item._kind) {
+      case 'rent':
+        return buildRentReceipt(item._original, propertyName, propertyAddress);
+      case 'electricity':
+        return buildUtilityBillReceipt(item._original, propertyName, propertyAddress);
+      case 'maintenanceExpense':
+        return buildMaintenanceExpenseReceipt(item._original, propertyName, propertyAddress);
+      case 'maintenanceCollected':
+        return buildMaintenanceCollectedReceipt(item._original, propertyName, propertyAddress);
+      case 'maintenanceSpentPayment':
+        return buildMaintenanceExpenseReceipt({ ...item._original, category: 'Maintenance Spent' }, propertyName, propertyAddress);
+      case 'deposit':
+      case 'refund':
+        return buildDepositReceipt(item._original, propertyName, propertyAddress);
+      default:
+        return buildOtherPaymentReceipt(item._original, propertyName, propertyAddress);
+    }
+  };
+
+  const viewColumn = (onView: (item: any) => void): TableColumn<any> => ({
+    key: 'view',
+    label: '',
+    sortable: false,
+    render: (item) => (
+      <button
+        type="button"
+        className="icon-btn h-8 w-8"
+        onClick={(e) => {
+          e.stopPropagation();
+          onView(item);
+        }}
+        title="View Receipt"
+      >
+        <EyeIcon width={15} height={15} />
+      </button>
+    )
+  });
+
   const allTransactionColumns: TableColumn<any>[] = [
     { key: 'propertyName', label: 'Property', accessor: (item) => item.propertyName },
     {
@@ -676,7 +811,8 @@ const Transactions = () => {
       accessor: (item) => item.status,
       filterOptions: statusFilterOptions,
       render: (item) => <Badge tone={statusTone(item.status)}>{item.status}</Badge>
-    }
+    },
+    viewColumn((item) => setReceipt(dispatchAllRowReceipt(item)))
   ];
 
   const rentTabColumns: TableColumn<any>[] = [
@@ -702,7 +838,10 @@ const Transactions = () => {
       accessor: (record) => record.status,
       filterOptions: statusFilterOptions,
       render: (record) => <Badge tone={statusTone(record.status)}>{record.status}</Badge>
-    }
+    },
+    viewColumn((record) =>
+      setReceipt(buildRentReceipt(record, getPropertyName(record, properties, propertyId), getPropertyAddress(record, properties, propertyId)))
+    )
   ];
 
   const electricityTabColumns: TableColumn<any>[] = [
@@ -717,7 +856,10 @@ const Transactions = () => {
       accessor: (bill) => bill.status,
       filterOptions: statusFilterOptions,
       render: (bill) => <Badge tone={statusTone(bill.status)}>{bill.status}</Badge>
-    }
+    },
+    viewColumn((bill) =>
+      setReceipt(buildUtilityBillReceipt(bill, getPropertyName(bill, properties, propertyId), getPropertyAddress(bill, properties, propertyId)))
+    )
   ];
 
   const maintenanceCollectedColumns: TableColumn<any>[] = [
@@ -726,7 +868,12 @@ const Transactions = () => {
     { key: 'tenant', label: 'Tenant', accessor: (payment) => payment.tenantId?.fullName || '-' },
     { key: 'unit', label: 'Unit', accessor: (payment) => payment.unitId?.unitNumber || '-' },
     { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${formatCurrency(payment.amount)}` },
-    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
+    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' },
+    viewColumn((payment) =>
+      setReceipt(
+        buildMaintenanceCollectedReceipt(payment, getPropertyName(payment, properties, propertyId), getPropertyAddress(payment, properties, propertyId))
+      )
+    )
   ];
 
   const maintenanceSpentColumns: TableColumn<any>[] = [
@@ -735,7 +882,8 @@ const Transactions = () => {
     { key: 'category', label: 'Category', accessor: (record) => record.category },
     { key: 'amount', label: 'Amount', accessor: (record) => record.amount, render: (record) => `₹${formatCurrency(record.amount)}` },
     { key: 'paidTo', label: 'Paid To', accessor: (record) => record.paidTo },
-    { key: 'notes', label: 'Notes', accessor: (record) => record.notes }
+    { key: 'notes', label: 'Notes', accessor: (record) => record.notes },
+    viewColumn((record) => setReceipt(buildMaintenanceExpenseReceipt(record, record.propertyName, record.propertyAddress)))
   ];
 
   const depositTabColumns: TableColumn<any>[] = [
@@ -753,7 +901,10 @@ const Transactions = () => {
       ]
     },
     { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${formatCurrency(payment.amount)}` },
-    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
+    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' },
+    viewColumn((payment) =>
+      setReceipt(buildDepositReceipt(payment, getPropertyName(payment, properties, propertyId), getPropertyAddress(payment, properties, propertyId)))
+    )
   ];
 
   const othersTabColumns: TableColumn<any>[] = [
@@ -775,7 +926,12 @@ const Transactions = () => {
     },
     { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${formatCurrency(payment.amount)}` },
     { key: 'date', label: 'Date', accessor: (payment) => new Date(payment.date).getTime(), render: (payment) => formatDate(payment.date) },
-    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' }
+    { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' },
+    viewColumn((payment) =>
+      setReceipt(
+        buildOtherPaymentReceipt(payment, getPropertyName(payment, properties, propertyId), getPropertyAddress(payment, properties, propertyId))
+      )
+    )
   ];
 
   return (
@@ -802,21 +958,21 @@ const Transactions = () => {
           </div>
           <button
             type="button"
-            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
             onClick={() => setMonthFilter((prev) => shiftMonthValue(prev, -1))}
             aria-label="Previous transactions month"
           >
             ←
           </button>
-          <input
-            type="month"
-            className="border border-black/10 rounded-lg px-3 py-2 text-sm min-w-[170px]"
+          <DatePicker
+            picker="month"
+            className="w-[170px] px-3 py-2 rounded-xl border border-black/10"
             value={monthFilter}
-            onChange={(e) => setMonthFilter(e.target.value)}
+            onChange={(next) => setMonthFilter(next)}
           />
           <button
             type="button"
-            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
             onClick={() => setMonthFilter((prev) => shiftMonthValue(prev, 1))}
             aria-label="Next transactions month"
           >
@@ -825,7 +981,10 @@ const Transactions = () => {
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => setShowAddPayment(true)}
+            onClick={() => {
+              setErrors({});
+              setShowAddPayment(true);
+            }}
           >
             Add Payment
           </button>
@@ -959,14 +1118,17 @@ const Transactions = () => {
               </button>
             </div>
 
-            <form className="space-y-5" onSubmit={submitAddPayment}>
+            <form className="space-y-5" onSubmit={submitAddPayment} noValidate>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs text-[var(--muted)]">Payment Type</label>
                   <select
                     className="w-full px-3 py-2 mt-1"
                     value={addType}
-                    onChange={(e) => setAddType(e.target.value as typeof addType)}
+                    onChange={(e) => {
+                      setAddType(e.target.value as typeof addType);
+                      setErrors({});
+                    }}
                   >
                     <option value="rent">Rent</option>
                     <option value="electricity">Electricity Bills</option>
@@ -975,13 +1137,15 @@ const Transactions = () => {
                     <option value="others">Others</option>
                   </select>
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Property</label>
                   <select
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${errors.formPropertyId ? 'input-error' : ''}`}
                     value={formPropertyId}
-                    onChange={(e) => setFormPropertyId(e.target.value)}
-                    required
+                    onChange={(e) => {
+                      setFormPropertyId(e.target.value);
+                      clearError('formPropertyId');
+                    }}
                   >
                     <option value="">Select property</option>
                     {properties.map((property) => (
@@ -990,46 +1154,59 @@ const Transactions = () => {
                       </option>
                     ))}
                   </select>
+                  <FieldError message={errors.formPropertyId} />
                 </div>
               </div>
 
               {addType === 'rent' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Tenant</label>
                     <select
-                      className="w-full px-3 py-2 mt-1"
+                      className={`w-full px-3 py-2 mt-1 ${errors.tenantId ? 'input-error' : ''}`}
                       value={rentForm.tenantId}
-                      onChange={(e) => setRentForm((prev) => ({ ...prev, tenantId: e.target.value }))}
-                      required
+                      onChange={(e) => {
+                        setRentForm((prev) => ({ ...prev, tenantId: e.target.value }));
+                        clearError('tenantId');
+                      }}
                     >
                       <option value="">Select tenant</option>
-                      {formTenants.map((tenant) => (
+                      {rentEligibleTenants.map((tenant) => (
                         <option key={tenant._id} value={tenant._id}>
-                          {tenant.fullName}{tenant.assignedUnit?.unitNumber ? ` - Unit ${tenant.assignedUnit.unitNumber}` : ''}
+                          {tenant.fullName}{tenant.assignedUnit?.unitNumber ? ` - Unit ${tenant.assignedUnit.unitNumber}` : ''}{!tenant.isActive ? ' (moved out)' : ''}
                         </option>
                       ))}
                     </select>
+                    <FieldError message={errors.tenantId} />
+                    {formPropertyId && !rentEligibleTenants.length && (
+                      <div className="mt-1 text-xs text-[var(--muted)]">No tenant occupied a unit here during this month.</div>
+                    )}
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Month</label>
-                    <input
-                      type="month"
-                      className="w-full px-3 py-2 mt-1"
+                    <DatePicker
+                      picker="month"
+                      className={`w-full px-3 py-2 mt-1 rounded-xl border border-black/10 ${errors.month ? 'input-error' : ''}`}
                       value={rentForm.month}
-                      onChange={(e) => setRentForm((prev) => ({ ...prev, month: e.target.value }))}
-                      required
+                      onChange={(next) => {
+                        setRentForm((prev) => ({ ...prev, month: next }));
+                        clearError('month');
+                      }}
                     />
+                    <FieldError message={errors.month} />
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Amount Received</label>
                     <input
-                      className="w-full px-3 py-2 mt-1"
+                      className={`w-full px-3 py-2 mt-1 ${errors.amount ? 'input-error' : ''}`}
                       value={rentForm.amount}
-                      onChange={(e) => setRentForm((prev) => ({ ...prev, amount: e.target.value }))}
+                      onChange={(e) => {
+                        setRentForm((prev) => ({ ...prev, amount: e.target.value }));
+                        clearError('amount');
+                      }}
                       placeholder="Rent amount"
-                      required
                     />
+                    <FieldError message={errors.amount} />
                     <div className="mt-1 text-xs text-[var(--muted)]">
                       Remaining for {formatMonthKey(rentForm.month)}: ₹{formatCurrency(rentRemainingAmount)}
                     </div>
@@ -1052,13 +1229,15 @@ const Transactions = () => {
 
               {addType === 'electricity' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Unit</label>
                     <select
-                      className="w-full px-3 py-2 mt-1"
+                      className={`w-full px-3 py-2 mt-1 ${errors.unitId ? 'input-error' : ''}`}
                       value={electricityForm.unitId}
-                      onChange={(e) => setElectricityForm((prev) => ({ ...prev, unitId: e.target.value }))}
-                      required
+                      onChange={(e) => {
+                        setElectricityForm((prev) => ({ ...prev, unitId: e.target.value }));
+                        clearError('unitId');
+                      }}
                     >
                       <option value="">Select unit</option>
                       {formUnits.map((unit) => (
@@ -1067,26 +1246,33 @@ const Transactions = () => {
                         </option>
                       ))}
                     </select>
+                    <FieldError message={errors.unitId} />
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Month</label>
-                    <input
-                      type="month"
-                      className="w-full px-3 py-2 mt-1"
+                    <DatePicker
+                      picker="month"
+                      className={`w-full px-3 py-2 mt-1 rounded-xl border border-black/10 ${errors.month ? 'input-error' : ''}`}
                       value={electricityForm.month}
-                      onChange={(e) => setElectricityForm((prev) => ({ ...prev, month: e.target.value }))}
-                      required
+                      onChange={(next) => {
+                        setElectricityForm((prev) => ({ ...prev, month: next }));
+                        clearError('month');
+                      }}
                     />
+                    <FieldError message={errors.month} />
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Current Reading</label>
                     <input
-                      className="w-full px-3 py-2 mt-1"
+                      className={`w-full px-3 py-2 mt-1 ${errors.currentReading ? 'input-error' : ''}`}
                       value={electricityForm.currentReading}
-                      onChange={(e) => setElectricityForm((prev) => ({ ...prev, currentReading: e.target.value }))}
+                      onChange={(e) => {
+                        setElectricityForm((prev) => ({ ...prev, currentReading: e.target.value }));
+                        clearError('currentReading');
+                      }}
                       placeholder="Current meter reading"
-                      required
                     />
+                    <FieldError message={errors.currentReading} />
                     <div className="mt-1 text-xs text-[var(--muted)]">
                       Amount due for {formatMonthKey(electricityForm.month)}: ₹{formatCurrency(electricityAmountPreview)}
                     </div>
@@ -1113,35 +1299,43 @@ const Transactions = () => {
 
               {addType === 'maintenance' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Date</label>
-                    <input
-                      type="date"
-                      className="w-full px-3 py-2 mt-1"
+                    <DatePicker
+                      className={`w-full px-3 py-2 mt-1 rounded-xl border border-black/10 ${errors.date ? 'input-error' : ''}`}
                       value={maintenanceForm.date}
-                      onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, date: e.target.value }))}
-                      required
+                      onChange={(next) => {
+                        setMaintenanceForm((prev) => ({ ...prev, date: next }));
+                        clearError('date');
+                      }}
                     />
+                    <FieldError message={errors.date} />
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Category</label>
                     <input
-                      className="w-full px-3 py-2 mt-1"
+                      className={`w-full px-3 py-2 mt-1 ${errors.category ? 'input-error' : ''}`}
                       value={maintenanceForm.category}
-                      onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, category: e.target.value }))}
+                      onChange={(e) => {
+                        setMaintenanceForm((prev) => ({ ...prev, category: e.target.value }));
+                        clearError('category');
+                      }}
                       placeholder="Repair, cleaning, plumbing..."
-                      required
                     />
+                    <FieldError message={errors.category} />
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Amount</label>
                     <input
-                      className="w-full px-3 py-2 mt-1"
+                      className={`w-full px-3 py-2 mt-1 ${errors.amount ? 'input-error' : ''}`}
                       value={maintenanceForm.amount}
-                      onChange={(e) => setMaintenanceForm((prev) => ({ ...prev, amount: e.target.value }))}
+                      onChange={(e) => {
+                        setMaintenanceForm((prev) => ({ ...prev, amount: e.target.value }));
+                        clearError('amount');
+                      }}
                       placeholder="Expense amount"
-                      required
                     />
+                    <FieldError message={errors.amount} />
                   </div>
                   <div>
                     <label className="text-xs text-[var(--muted)]">Paid To</label>
@@ -1166,21 +1360,24 @@ const Transactions = () => {
 
               {addType === 'deposit' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Tenant</label>
                     <select
-                      className="w-full px-3 py-2 mt-1"
+                      className={`w-full px-3 py-2 mt-1 ${errors.tenantId ? 'input-error' : ''}`}
                       value={depositForm.tenantId}
-                      onChange={(e) => setDepositForm((prev) => ({ ...prev, tenantId: e.target.value }))}
-                      required
+                      onChange={(e) => {
+                        setDepositForm((prev) => ({ ...prev, tenantId: e.target.value }));
+                        clearError('tenantId');
+                      }}
                     >
                       <option value="">Select tenant</option>
-                      {formTenants.map((tenant) => (
+                      {activeFormTenants.map((tenant) => (
                         <option key={tenant._id} value={tenant._id}>
                           {tenant.fullName}{tenant.assignedUnit?.unitNumber ? ` - Unit ${tenant.assignedUnit.unitNumber}` : ''}
                         </option>
                       ))}
                     </select>
+                    <FieldError message={errors.tenantId} />
                   </div>
                   <div>
                     <label className="text-xs text-[var(--muted)]">Deposit Type</label>
@@ -1193,28 +1390,33 @@ const Transactions = () => {
                       <option value="refund">Refunded</option>
                     </select>
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Amount</label>
                     <input
-                      className="w-full px-3 py-2 mt-1"
+                      className={`w-full px-3 py-2 mt-1 ${errors.amount ? 'input-error' : ''}`}
                       value={depositForm.amount}
-                      onChange={(e) => setDepositForm((prev) => ({ ...prev, amount: e.target.value }))}
+                      onChange={(e) => {
+                        setDepositForm((prev) => ({ ...prev, amount: e.target.value }));
+                        clearError('amount');
+                      }}
                       placeholder="Deposit amount"
-                      required
                     />
+                    <FieldError message={errors.amount} />
                     <div className="mt-1 text-xs text-[var(--muted)]">
                       {depositForm.type === 'refund' ? 'Refundable deposit' : 'Remaining deposit'}: ₹{formatCurrency(depositRemainingAmount)}
                     </div>
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Date</label>
-                    <input
-                      type="date"
-                      className="w-full px-3 py-2 mt-1"
+                    <DatePicker
+                      className={`w-full px-3 py-2 mt-1 rounded-xl border border-black/10 ${errors.date ? 'input-error' : ''}`}
                       value={depositForm.date}
-                      onChange={(e) => setDepositForm((prev) => ({ ...prev, date: e.target.value }))}
-                      required
+                      onChange={(next) => {
+                        setDepositForm((prev) => ({ ...prev, date: next }));
+                        clearError('date');
+                      }}
                     />
+                    <FieldError message={errors.date} />
                   </div>
                   <div className="md:col-span-2">
                     <label className="text-xs text-[var(--muted)]">Notes</label>
@@ -1241,25 +1443,30 @@ const Transactions = () => {
                       <option value="out">Cash Out (expense paid)</option>
                     </select>
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Amount</label>
                     <input
-                      className="w-full px-3 py-2 mt-1"
+                      className={`w-full px-3 py-2 mt-1 ${errors.amount ? 'input-error' : ''}`}
                       value={otherForm.amount}
-                      onChange={(e) => setOtherForm((prev) => ({ ...prev, amount: e.target.value }))}
+                      onChange={(e) => {
+                        setOtherForm((prev) => ({ ...prev, amount: e.target.value }));
+                        clearError('amount');
+                      }}
                       placeholder="Amount"
-                      required
                     />
+                    <FieldError message={errors.amount} />
                   </div>
-                  <div>
+                  <div className="relative">
                     <label className="text-xs text-[var(--muted)]">Date</label>
-                    <input
-                      type="date"
-                      className="w-full px-3 py-2 mt-1"
+                    <DatePicker
+                      className={`w-full px-3 py-2 mt-1 rounded-xl border border-black/10 ${errors.date ? 'input-error' : ''}`}
                       value={otherForm.date}
-                      onChange={(e) => setOtherForm((prev) => ({ ...prev, date: e.target.value }))}
-                      required
+                      onChange={(next) => {
+                        setOtherForm((prev) => ({ ...prev, date: next }));
+                        clearError('date');
+                      }}
                     />
+                    <FieldError message={errors.date} />
                   </div>
                   <div className="md:col-span-2">
                     <label className="text-xs text-[var(--muted)]">Notes</label>
@@ -1294,6 +1501,7 @@ const Transactions = () => {
         </div>,
         document.body
       )}
+      <ReceiptModal data={receipt} onClose={() => setReceipt(null)} />
     </div>
   );
 };

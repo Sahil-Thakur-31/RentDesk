@@ -2,6 +2,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { HttpError } from '../utils/httpError';
 import { Payment } from '../models/Payment';
 import { optionalString, requireString } from '../utils/request';
+import { requirePositive } from '../utils/validation';
 import { emitPortfolioEvent } from '../ws/emit';
 
 export const listPayments = asyncHandler(async (req, res) => {
@@ -20,7 +21,7 @@ export const listPayments = asyncHandler(async (req, res) => {
 
   const payments = await Payment.find(query)
     .sort({ date: -1 })
-    .populate('tenantId', 'fullName')
+    .populate('tenantId', 'fullName phone depositAmount')
     .populate('unitId', 'unitNumber');
   res.json(payments);
 });
@@ -31,6 +32,7 @@ export const createPayment = asyncHandler(async (req, res) => {
   if (!type || amount == null || !date) {
     throw new HttpError(400, 'type, amount and date are required');
   }
+  requirePositive(amount, 'amount');
 
   const payment = await Payment.create({
     type,

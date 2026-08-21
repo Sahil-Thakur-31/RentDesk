@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import { CloseIcon } from './icons';
 import { toast } from '../lib/toast';
+import FieldError from './FieldError';
+import { isBlank, requiredMsg, type FieldErrors } from '../lib/validation';
 
 type TenantFormModalProps = {
   open: boolean;
@@ -38,6 +40,7 @@ const TenantFormModal = ({
     assignedUnit: assignedUnitId || '',
     depositPaid: ''
   });
+  const [errors, setErrors] = useState<FieldErrors>({});
 
   const showPropertyPicker = !assignedUnitId && properties.length > 0;
   const availableUnits = showPropertyPicker
@@ -58,6 +61,7 @@ const TenantFormModal = ({
       depositPaid: ''
     });
     setSelectedExisting(null);
+    setErrors({});
   }, [open, assignedUnitId, propertyId]);
 
   useEffect(() => {
@@ -81,14 +85,22 @@ const TenantFormModal = ({
     if (key === 'fullName') {
       setSelectedExisting(null);
     }
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+
+  const validate = () => {
+    const next: FieldErrors = {};
+    if (showPropertyPicker && isBlank(selectedPropertyId)) next.selectedPropertyId = requiredMsg('Property');
+    if (isBlank(form.fullName)) next.fullName = requiredMsg('Full name');
+    if (isBlank(form.phone)) next.phone = requiredMsg('Phone');
+    if (!assignedUnitId && isBlank(form.assignedUnit)) next.assignedUnit = requiredMsg('Assigned unit');
+    setErrors(next);
+    return !Object.values(next).some(Boolean);
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPropertyId) {
-      toast.error('Please select a property.');
-      return;
-    }
+    if (!validate()) return;
     setLoading(true);
     try {
       if (selectedExisting) {
@@ -141,19 +153,19 @@ const TenantFormModal = ({
             <CloseIcon width={18} height={18} />
           </button>
         </div>
-        <form onSubmit={submit} className="space-y-4">
+        <form onSubmit={submit} noValidate className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {showPropertyPicker && (
-              <div className="md:col-span-2">
+              <div className="relative md:col-span-2">
                 <label className="text-xs text-[var(--muted)]">Property</label>
                 <select
-                  className="w-full px-3 py-2 mt-1"
+                  className={`w-full px-3 py-2 mt-1 ${errors.selectedPropertyId ? 'input-error' : ''}`}
                   value={selectedPropertyId}
                   onChange={(e) => {
                     setSelectedPropertyId(e.target.value);
                     setForm((prev) => ({ ...prev, assignedUnit: '' }));
+                    setErrors((prev) => (prev.selectedPropertyId ? { ...prev, selectedPropertyId: undefined } : prev));
                   }}
-                  required
                 >
                   <option value="">Select property</option>
                   {properties.map((property) => (
@@ -162,17 +174,18 @@ const TenantFormModal = ({
                     </option>
                   ))}
                 </select>
+                <FieldError message={errors.selectedPropertyId} />
               </div>
             )}
-            <div>
+            <div className="relative">
               <label className="text-xs text-[var(--muted)]">Full Name</label>
               <input
-                className="w-full px-3 py-2 mt-1"
+                className={`w-full px-3 py-2 mt-1 ${errors.fullName ? 'input-error' : ''}`}
                 placeholder="Full name"
                 value={form.fullName}
                 onChange={(e) => updateField('fullName', e.target.value)}
-                required
               />
+              <FieldError message={errors.fullName} />
               <div className="text-[11px] text-[var(--muted)] mt-1">
                 Type a name to find previously inactive tenants.
               </div>
@@ -202,15 +215,15 @@ const TenantFormModal = ({
                 </div>
               )}
             </div>
-            <div>
+            <div className="relative">
               <label className="text-xs text-[var(--muted)]">Phone</label>
               <input
-                className="w-full px-3 py-2 mt-1"
+                className={`w-full px-3 py-2 mt-1 ${errors.phone ? 'input-error' : ''}`}
                 placeholder="Phone"
                 value={form.phone}
                 onChange={(e) => updateField('phone', e.target.value)}
-                required
               />
+              <FieldError message={errors.phone} />
             </div>
             <div>
               <label className="text-xs text-[var(--muted)]">Email (Optional)</label>
@@ -265,14 +278,13 @@ const TenantFormModal = ({
               </div>
             </div>
           ) : (
-              <div>
+              <div className="relative">
                 <label className="text-xs text-[var(--muted)]">Assigned Unit</label>
                 <select
-                  className="w-full px-3 py-2 mt-1"
+                  className={`w-full px-3 py-2 mt-1 ${errors.assignedUnit ? 'input-error' : ''}`}
                   value={form.assignedUnit}
                   onChange={(e) => updateField('assignedUnit', e.target.value)}
                   disabled={showPropertyPicker && !selectedPropertyId}
-                  required
                 >
                   <option value="">{showPropertyPicker && !selectedPropertyId ? 'Select a property first' : 'Select unit'}</option>
                   {availableUnits.map((unit) => (
@@ -281,6 +293,7 @@ const TenantFormModal = ({
                     </option>
                   ))}
                 </select>
+                <FieldError message={errors.assignedUnit} />
               </div>
             )}
           </div>
@@ -304,7 +317,14 @@ const TenantFormModal = ({
             >
               {loading ? 'Saving...' : 'Save Tenant'}
             </button>
-            <button type="button" className="btn btn-cancel" onClick={onClose}>
+            <button
+              type="button"
+              className="btn btn-cancel"
+              onClick={() => {
+                setErrors({});
+                onClose();
+              }}
+            >
               Cancel
             </button>
           </div>

@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import PropertyPicker from '../components/PropertyPicker';
 import Badge, { type BadgeTone } from '../components/Badge';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
-import { UtilitiesIcon } from '../components/icons';
+import { EyeIcon, UtilitiesIcon } from '../components/icons';
+import DatePicker from '../components/DatePicker';
+import ReceiptModal from '../components/ReceiptModal';
+import { buildUtilityBillReceipt, type ReceiptData } from '../lib/receipt';
 import { formatMonthKey, shiftMonthValue } from '../lib/dateFormat';
 import { cachedGet, isCached, useCachedQuery } from '../lib/queryCache';
 import { formatCurrency } from '../lib/format';
@@ -28,6 +31,7 @@ const UtilityBills = () => {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   const isServerMode = Boolean(propertyId);
   const baseParams = { month, billType: columnFilters.billType || undefined, status: columnFilters.status || undefined };
@@ -77,7 +81,8 @@ const UtilityBills = () => {
         const merged = responses.flatMap((data, index) =>
           (data || []).map((bill: any) => ({
             ...bill,
-            _propertyName: properties[index].name
+            _propertyName: properties[index].name,
+            _propertyId: properties[index]._id
           }))
         );
         setBills(merged);
@@ -120,6 +125,26 @@ const UtilityBills = () => {
         { value: 'unpaid', label: 'Unpaid' }
       ],
       render: (bill) => <Badge tone={statusTone(bill.status)}>{bill.status}</Badge>
+    },
+    {
+      key: 'view',
+      label: '',
+      sortable: false,
+      render: (bill) => (
+        <button
+          type="button"
+          className="icon-btn h-8 w-8"
+          onClick={(e) => {
+            e.stopPropagation();
+            const property = properties.find((item) => item._id === (bill._propertyId || propertyId));
+            const propertyName = bill._propertyName || property?.name || '-';
+            setReceipt(buildUtilityBillReceipt(bill, propertyName, property?.address));
+          }}
+          title="View Receipt"
+        >
+          <EyeIcon width={15} height={15} />
+        </button>
+      )
     }
   ];
 
@@ -128,21 +153,21 @@ const UtilityBills = () => {
       <div className="flex flex-wrap items-center justify-end gap-3">
         <button
           type="button"
-          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
           onClick={() => setMonth((prev) => shiftMonthValue(prev, -1))}
           aria-label="Previous month"
         >
           ←
         </button>
-        <input
-          type="month"
-          className="border border-black/10 rounded-lg px-3 py-2 text-sm"
+        <DatePicker
+          picker="month"
+          className="w-[150px] px-3 py-2 rounded-xl border border-black/10"
           value={month}
-          onChange={(e) => setMonth(e.target.value)}
+          onChange={(next) => setMonth(next)}
         />
         <button
           type="button"
-          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
           onClick={() => setMonth((prev) => shiftMonthValue(prev, 1))}
           aria-label="Next month"
         >
@@ -192,6 +217,7 @@ const UtilityBills = () => {
             : undefined
         }
       />
+      <ReceiptModal data={receipt} onClose={() => setReceipt(null)} />
     </div>
   );
 };

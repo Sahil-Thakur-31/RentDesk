@@ -4,6 +4,9 @@ import { CloseIcon } from './icons';
 import { getCurrentDateValue } from '../lib/dateFormat';
 import { toast } from '../lib/toast';
 import { formatCurrency } from '../lib/format';
+import FieldError from './FieldError';
+import DatePicker from './DatePicker';
+import { type FieldErrors } from '../lib/validation';
 
 type DepositPaymentModalProps = {
   open: boolean;
@@ -33,12 +36,14 @@ const DepositPaymentModal = ({
   const [date, setDate] = useState(getCurrentDateValue());
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<FieldErrors>({});
 
   useEffect(() => {
     if (!open) return;
     setAmount(remaining > 0 ? String(remaining) : '');
     setDate(getCurrentDateValue());
     setNotes('');
+    setErrors({});
   }, [open, remaining]);
 
   if (!open) return null;
@@ -46,14 +51,12 @@ const DepositPaymentModal = ({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const numericAmount = Number(amount || 0);
-    if (!numericAmount || numericAmount <= 0) {
-      toast.error('Enter a valid deposit amount.');
-      return;
-    }
-    if (numericAmount > remaining) {
-      toast.error('Deposit amount cannot be greater than remaining deposit.');
-      return;
-    }
+    const next: FieldErrors = {};
+    if (!numericAmount || numericAmount <= 0) next.amount = 'Enter a valid deposit amount';
+    else if (numericAmount > remaining) next.amount = 'Cannot exceed remaining deposit';
+    if (!date) next.date = 'Date is required';
+    setErrors(next);
+    if (Object.values(next).some(Boolean)) return;
 
     setSaving(true);
     try {
@@ -103,26 +106,31 @@ const DepositPaymentModal = ({
           </div>
         </div>
 
-        <form onSubmit={submit} className="space-y-4">
-          <div>
+        <form onSubmit={submit} noValidate className="space-y-4">
+          <div className="relative">
             <label className="text-xs text-[var(--muted)]">Deposit Received Now</label>
             <input
-              className="w-full px-3 py-2 mt-1"
+              className={`w-full px-3 py-2 mt-1 ${errors.amount ? 'input-error' : ''}`}
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                setAmount(e.target.value);
+                setErrors((prev) => (prev.amount ? { ...prev, amount: undefined } : prev));
+              }}
               placeholder="Enter amount"
-              required
             />
+            <FieldError message={errors.amount} />
           </div>
-          <div>
+          <div className="relative">
             <label className="text-xs text-[var(--muted)]">Date</label>
-            <input
-              type="date"
-              className="w-full px-3 py-2 mt-1"
+            <DatePicker
+              className={`w-full px-3 py-2 mt-1 rounded-xl border border-black/10 ${errors.date ? 'input-error' : ''}`}
               value={date}
-              onChange={(e) => setDate(e.target.value)}
-              required
+              onChange={(next) => {
+                setDate(next);
+                setErrors((prev) => (prev.date ? { ...prev, date: undefined } : prev));
+              }}
             />
+            <FieldError message={errors.date} />
           </div>
           <div>
             <label className="text-xs text-[var(--muted)]">Notes (Optional)</label>

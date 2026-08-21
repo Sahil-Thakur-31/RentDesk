@@ -26,11 +26,11 @@ const Filters = ['all', 'warning', 'success', 'info'] as const;
 const Notifications = () => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<(typeof Filters)[number]>('all');
-  const { notifications, loading } = useNotificationsFeed();
+  const { notifications, loading, markRead } = useNotificationsFeed();
 
   const filteredNotifications = useMemo(() => {
     return filter === 'all' ? notifications : notifications.filter((item) => item.tone === filter);
-  }, [filter]);
+  }, [filter, notifications]);
 
   const counts = useMemo(() => {
     return {
@@ -38,7 +38,7 @@ const Notifications = () => {
       success: notifications.filter((item) => item.tone === 'success').length,
       info: notifications.filter((item) => item.tone === 'info').length
     };
-  }, []);
+  }, [notifications]);
 
   const headline = useMemo(() => {
     if (filter === 'warning') return 'Items that need your attention first';
@@ -134,13 +134,17 @@ const Notifications = () => {
             <button
               key={item.id}
               type="button"
-              onClick={() => item.path && navigate(item.path)}
-              className={`block w-full rounded-3xl border p-5 text-left shadow-sm transition hover:-translate-y-0.5 ${toneMap[item.tone].panel}`}
+              onClick={() => {
+                markRead(item.id);
+                if (item.path) navigate(item.path);
+              }}
+              className={`block w-full rounded-3xl border p-5 text-left shadow-sm transition hover:-translate-y-0.5 ${item.read ? 'border-black/5 bg-white' : toneMap[item.tone].panel}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="space-y-2">
                   <div className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${toneMap[item.tone].badge}`}>
                     {toneMap[item.tone].label}
+                    {!item.read && <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-current align-middle" />}
                   </div>
                   <div className="text-xl font-semibold">{item.title}</div>
                   <div className="max-w-2xl text-sm text-[var(--muted)]">{item.description}</div>

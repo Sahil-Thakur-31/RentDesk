@@ -20,6 +20,14 @@ export const register = asyncHandler(async (req, res) => {
     throw new HttpError(400, 'fullName, email and password are required');
   }
 
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    throw new HttpError(400, 'Enter a valid email address', { fields: ['email'] });
+  }
+
+  if (String(password).length < 6) {
+    throw new HttpError(400, 'Password must be at least 6 characters long', { fields: ['password'] });
+  }
+
   const existing = await User.findOne({ email: normalizedEmail });
   if (existing) throw new HttpError(409, 'Email already registered');
 
@@ -57,6 +65,37 @@ export const login = asyncHandler(async (req, res) => {
 });
 
 export const me = asyncHandler(async (req, res) => {
+  res.json({ user: req.user });
+});
+
+export const updateMe = asyncHandler(async (req, res) => {
+  if (!req.user) throw new HttpError(401, 'Unauthorized');
+
+  const { fullName, email, phone } = req.body;
+
+  if (fullName !== undefined) {
+    const trimmedName = String(fullName).trim();
+    if (!trimmedName) throw new HttpError(400, 'Full name cannot be empty', { fields: ['fullName'] });
+    req.user.fullName = trimmedName;
+  }
+
+  if (email !== undefined) {
+    const normalizedEmail = String(email).toLowerCase().trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      throw new HttpError(400, 'Enter a valid email address', { fields: ['email'] });
+    }
+    if (normalizedEmail !== req.user.email) {
+      const existing = await User.findOne({ email: normalizedEmail });
+      if (existing) throw new HttpError(409, 'Email already registered', { fields: ['email'] });
+      req.user.email = normalizedEmail;
+    }
+  }
+
+  if (phone !== undefined) {
+    req.user.phone = String(phone).trim() || undefined;
+  }
+
+  await req.user.save();
   res.json({ user: req.user });
 });
 

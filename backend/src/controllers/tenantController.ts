@@ -8,6 +8,7 @@ import { RentRecord } from '../models/RentRecord';
 import { ensureBase64OrThrow } from '../utils/base64';
 import { getAutoMaintenanceUntil, syncUnitStatus } from '../services/unitStatusService';
 import { requireString } from '../utils/request';
+import { requireFields } from '../utils/validation';
 import { emitPortfolioEvent } from '../ws/emit';
 import { buildPaginatedResult, buildSearchRegexStage, isPaginatedRequest, parseListQuery, runPaginatedAggregate } from '../utils/listQuery';
 
@@ -99,7 +100,10 @@ export const getTenantDetails = asyncHandler(async (req, res) => {
 
   const [payments, rentRecords] = await Promise.all([
     Payment.find({ propertyId, tenantId: tenant._id }).sort({ date: -1 }),
-    RentRecord.find({ propertyId, tenantId: tenant._id }).sort({ year: -1, month: -1 })
+    RentRecord.find({ propertyId, tenantId: tenant._id })
+      .sort({ year: -1, month: -1 })
+      .populate('tenantId', 'fullName phone')
+      .populate('unitId', 'unitNumber')
   ]);
 
   res.json({ tenant, payments, rentRecords });
@@ -120,9 +124,7 @@ export const createTenant = asyncHandler(async (req, res) => {
     documents
   } = req.body;
 
-  if (!fullName || !phone || !assignedUnit) {
-    throw new HttpError(400, 'Missing required tenant fields');
-  }
+  requireFields(req.body, ['fullName', 'phone', 'assignedUnit']);
 
   ensureBase64OrThrow(photoBase64, 'photoBase64');
   ensureBase64OrThrow(documents?.idProofBase64, 'documents.idProofBase64');
@@ -191,6 +193,12 @@ export const updateTenant = asyncHandler(async (req, res) => {
   if (req.body.documents) {
     ensureBase64OrThrow(req.body.documents.idProofBase64, 'documents.idProofBase64');
     ensureBase64OrThrow(req.body.documents.policeVerificationBase64, 'documents.policeVerificationBase64');
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, 'fullName') && !String(req.body.fullName ?? '').trim()) {
+    throw new HttpError(400, 'fullName cannot be empty', { fields: ['fullName'] });
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, 'phone') && !String(req.body.phone ?? '').trim()) {
+    throw new HttpError(400, 'phone cannot be empty', { fields: ['phone'] });
   }
 
   Object.assign(tenant, req.body);

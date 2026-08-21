@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import StatCard from '../components/StatCard';
 import PropertyPicker from '../components/PropertyPicker';
+import DatePicker from '../components/DatePicker';
+import Badge from '../components/Badge';
 import { formatDate, formatMonthKey, formatMonthYear, getCurrentDateValue, getCurrentMonthValue, shiftMonthValue } from '../lib/dateFormat';
 import { useI18n } from '../lib/i18n';
 import { cachedGet, invalidateByTag, isCached, useCachedQuery } from '../lib/queryCache';
-import { BuildingIcon, CashIcon, CloseIcon, ShieldIcon, TransactionsIcon, UnitsIcon, UtilitiesIcon, WrenchIcon } from '../components/icons';
+import { CashIcon, CloseIcon, ReportsIcon, ShieldIcon, TransactionsIcon, UnitsIcon, UtilitiesIcon, WrenchIcon } from '../components/icons';
 import { toast } from '../lib/toast';
 import { SkeletonStatCards, SkeletonDashboardSummary } from '../components/Skeleton';
 import { formatCurrency } from '../lib/format';
@@ -16,9 +18,9 @@ const Dashboard = () => {
   const getMonthKey = (targetYear: number, targetMonth: number) =>
     `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
   const wasTenantPresentInMonth = (tenant: any, startDate: Date, endDate: Date) => {
-    const createdAt = tenant?.createdAt ? new Date(tenant.createdAt) : null;
+    const movedInDate = tenant?.movedInDate ? new Date(tenant.movedInDate) : tenant?.createdAt ? new Date(tenant.createdAt) : null;
     const movedOutDate = tenant?.movedOutDate ? new Date(tenant.movedOutDate) : null;
-    const startedBeforeMonthEnd = !createdAt || createdAt <= endDate;
+    const startedBeforeMonthEnd = !movedInDate || movedInDate <= endDate;
     const leftAfterMonthStart = !movedOutDate || movedOutDate >= startDate;
     return startedBeforeMonthEnd && leftAfterMonthStart;
   };
@@ -158,7 +160,12 @@ const Dashboard = () => {
       });
       const depositBalanceByTenant = new Map<string, number>();
       allPayments
-        .filter((payment: any) => ['deposit', 'refund'].includes(payment.type) && payment.tenantId)
+        .filter(
+          (payment: any) =>
+            ['deposit', 'refund'].includes(payment.type) &&
+            payment.tenantId &&
+            new Date(payment.date).getTime() <= monthEnd.getTime()
+        )
         .forEach((payment: any) => {
           const tenantKey = String(payment.tenantId?._id || payment.tenantId);
           const current = depositBalanceByTenant.get(tenantKey) || 0;
@@ -220,7 +227,7 @@ const Dashboard = () => {
           }))
         : [];
       const depositDue = (tenantsRes.data || [])
-        .filter((tenant: any) => tenant.isActive && tenant.assignedUnit?._id)
+        .filter((tenant: any) => tenant.assignedUnit?._id && wasTenantPresentInMonth(tenant, monthStart, monthEnd))
         .map((tenant: any) => {
           const paid = depositBalanceByTenant.get(String(tenant._id)) || 0;
           const required = tenant.depositAmount || 0;
@@ -238,7 +245,7 @@ const Dashboard = () => {
         });
       const rentRecordsForMonth = [...(rentRes.data || []), ...(rentPaidRes.data || [])];
       const virtualPendingRent = buildMissingRentRows(
-        (tenantsRes.data || []).filter((tenant: any) => tenant.isActive),
+        (tenantsRes.data || []).filter((tenant: any) => wasTenantPresentInMonth(tenant, monthStart, monthEnd)),
         rentRecordsForMonth,
         scopeMonthNum,
         scopeYear,
@@ -394,7 +401,12 @@ const Dashboard = () => {
       }));
     const depositBalanceByTenant = new Map<string, number>();
     combinedAllPayments
-      .filter((payment: any) => ['deposit', 'refund'].includes(payment.type) && payment.tenantId)
+      .filter(
+        (payment: any) =>
+          ['deposit', 'refund'].includes(payment.type) &&
+          payment.tenantId &&
+          new Date(payment.date).getTime() <= monthEnd.getTime()
+      )
       .forEach((payment: any) => {
         const tenantKey = String(payment.tenantId?._id || payment.tenantId);
         const current = depositBalanceByTenant.get(tenantKey) || 0;
@@ -405,7 +417,7 @@ const Dashboard = () => {
         depositBalanceByTenant.set(tenantKey, next);
       });
     const combinedDepositDue = combinedTenants
-      .filter((tenant: any) => tenant.isActive && tenant.assignedUnit?._id)
+      .filter((tenant: any) => tenant.assignedUnit?._id && wasTenantPresentInMonth(tenant, monthStart, monthEnd))
       .map((tenant: any) => {
         const paid = depositBalanceByTenant.get(String(tenant._id)) || 0;
         const required = tenant.depositAmount || 0;
@@ -425,7 +437,9 @@ const Dashboard = () => {
       });
     const virtualCombinedRent = properties.flatMap((property) => {
       const propertyTenants = combinedTenants.filter(
-        (tenant: any) => String(tenant.propertyId?._id || tenant.propertyId) === String(property._id) && tenant.isActive
+        (tenant: any) =>
+          String(tenant.propertyId?._id || tenant.propertyId) === String(property._id) &&
+          wasTenantPresentInMonth(tenant, monthStart, monthEnd)
       );
       const propertyRecords = [...combinedRent, ...combinedRentPaid].filter(
         (record: any) => String(record._propertyId || record.propertyId) === String(property._id)
@@ -587,6 +601,8 @@ const Dashboard = () => {
   const depositPending = totals.depositPending || 0;
   const otherCashIntake = totals.otherCashIntake || 0;
   const otherCashSpent = totals.otherCashSpent || 0;
+  const monthlyRevenue = totals.monthlyRevenue || 0;
+  const lifetimeRevenue = totals.lifetimeRevenue || 0;
   const occupancyRate = totals.totalUnits
     ? Math.round((totals.occupiedUnits / totals.totalUnits) * 100)
     : 0;
@@ -823,7 +839,7 @@ const Dashboard = () => {
           <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
           <button
             type="button"
-            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
             onClick={() => {
               const next = shiftMonthValue(`${year}-${String(month).padStart(2, '0')}`, -1);
               const [yy, mm] = next.split('-').map(Number);
@@ -834,12 +850,12 @@ const Dashboard = () => {
           >
             ←
           </button>
-          <input
-            type="month"
-            className="border border-black/10 rounded-lg px-3 py-2 text-sm"
+          <DatePicker
+            picker="month"
+            className="w-[170px] px-3 py-2 rounded-xl border border-black/10"
             value={`${year}-${String(month).padStart(2, '0')}`}
-            onChange={(e) => {
-              const [yy, mm] = e.target.value.split('-').map(Number);
+            onChange={(next) => {
+              const [yy, mm] = next.split('-').map(Number);
               if (!Number.isNaN(yy) && !Number.isNaN(mm)) {
                 setYear(yy);
                 setMonth(mm);
@@ -848,7 +864,7 @@ const Dashboard = () => {
           />
           <button
             type="button"
-            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
             onClick={() => {
               const next = shiftMonthValue(`${year}-${String(month).padStart(2, '0')}`, 1);
               const [yy, mm] = next.split('-').map(Number);
@@ -872,12 +888,19 @@ const Dashboard = () => {
 
       {loading && !data ? (
         <div className="space-y-6">
-          <SkeletonStatCards />
+          <SkeletonStatCards count={7} />
           <SkeletonDashboardSummary />
         </div>
       ) : (
       <>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard
+          label="Total Revenue"
+          value={`${'₹'}${formatCurrency(monthlyRevenue)}`}
+          subLabel={`${'₹'}${formatCurrency(lifetimeRevenue)} lifetime, all properties`}
+          tone={monthlyRevenue >= 0 ? 'success' : 'danger'}
+          icon={<ReportsIcon width={18} height={18} />}
+        />
         <StatCard
           label="Rent"
           value={`${'\u20B9'}${formatCurrency(collectedRent)} / ${'\u20B9'}${formatCurrency(expectedRent)}`}
@@ -895,15 +918,13 @@ const Dashboard = () => {
         <StatCard
           label="Maintenance"
           value={`${'\u20B9'}${formatCurrency(maintenanceCollected)} / ${'\u20B9'}${formatCurrency(maintenanceExpected)}`}
-          subLabel={`${'\u20B9'}${formatCurrency(maintenancePending)} pending`}
+          subLabel={
+            <>
+              {maintenancePending > 0 ? `${'\u20B9'}${formatCurrency(maintenancePending)} pending` : 'Fully collected'}
+              {maintenanceSpent > 0 ? ` \u00B7 ${'\u20B9'}${formatCurrency(maintenanceSpent)} spent` : ''}
+            </>
+          }
           tone={maintenancePending > 0 ? 'warning' : 'success'}
-          icon={<WrenchIcon width={18} height={18} />}
-        />
-        <StatCard
-          label="Maintenance Spent"
-          value={`${'\u20B9'}${formatCurrency(maintenanceSpent)}`}
-          subLabel="Property expenses"
-          tone="default"
           icon={<WrenchIcon width={18} height={18} />}
         />
         <StatCard
@@ -923,15 +944,16 @@ const Dashboard = () => {
         <StatCard
           label="Occupancy"
           value={`${occupancyRate}%`}
-          subLabel={`${totals.occupiedUnits || 0} of ${totals.totalUnits || 0} units occupied`}
+          subLabel={
+            <span className="flex items-center gap-1.5">
+              {totals.occupiedUnits || 0} of {totals.totalUnits || 0} units
+              <Badge tone="neutral" dot={false}>
+                {totals.totalProperties || 0} propert{(totals.totalProperties || 0) === 1 ? 'y' : 'ies'}
+              </Badge>
+            </span>
+          }
           tone={occupancyRate >= 90 ? 'success' : occupancyRate >= 60 ? 'warning' : 'danger'}
           icon={<UnitsIcon width={18} height={18} />}
-        />
-        <StatCard
-          label="Properties"
-          value={totals.totalProperties || 0}
-          subLabel="Total buildings and flats"
-          icon={<BuildingIcon width={18} height={18} />}
         />
       </div>
 
@@ -1023,7 +1045,7 @@ const Dashboard = () => {
             {nextActionTabs.map((item) => (
               <button
                 key={item.key}
-                className={`px-3 py-3 rounded-xl text-sm font-medium transition ${
+                className={`px-2 py-3 rounded-xl text-sm font-medium transition whitespace-nowrap overflow-hidden text-ellipsis ${
                   nextActionTab === item.key
                     ? 'bg-[var(--accent)] text-white'
                     : 'bg-white text-[var(--muted)] hover:bg-[var(--surface-1)]'
@@ -1182,21 +1204,21 @@ const Dashboard = () => {
               <div className="text-xs text-[var(--muted)]">Month</div>
               <button
                 type="button"
-                className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+                className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
                 onClick={() => setModalMonth((prev) => shiftMonthValue(prev, -1))}
                 aria-label="Previous payment month"
               >
                 ←
               </button>
-              <input
-                type="month"
-                className="px-3 py-2 rounded-lg border border-black/10 text-sm"
+              <DatePicker
+                picker="month"
+                className="w-[150px] px-3 py-2 rounded-xl border border-black/10"
                 value={modalMonth}
-                onChange={(e) => setModalMonth(e.target.value)}
+                onChange={(next) => setModalMonth(next)}
               />
               <button
                 type="button"
-                className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+                className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
                 onClick={() => setModalMonth((prev) => shiftMonthValue(prev, 1))}
                 aria-label="Next payment month"
               >
@@ -1713,12 +1735,10 @@ const Dashboard = () => {
                   </div>
                   <div>
                     <label className="text-xs text-[var(--muted)]">Date</label>
-                    <input
-                      type="date"
-                      className="w-full px-3 py-2 mt-1"
+                    <DatePicker
+                      className="w-full px-3 py-2 mt-1 rounded-xl border border-black/10"
                       value={otherForm.date}
-                      onChange={(e) => setOtherForm((prev) => ({ ...prev, date: e.target.value }))}
-                      required
+                      onChange={(next) => setOtherForm((prev) => ({ ...prev, date: next }))}
                     />
                   </div>
                   <div>

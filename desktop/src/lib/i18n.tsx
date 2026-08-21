@@ -66,6 +66,7 @@ const ENGLISH_LABELS: Record<string, string> = {
   Logout: 'Logout',
   'Portfolio Profile': 'Portfolio Profile',
   'Recent updates': 'Recent updates',
+  'Mark all as read': 'Mark all as read',
   'View more': 'View more',
   'Tip: Use the dashboard to review rent gaps and pending payments every week.':
     'Tip: Use the dashboard to review rent gaps and pending payments every week.',

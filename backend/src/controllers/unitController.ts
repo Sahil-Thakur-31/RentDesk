@@ -9,6 +9,7 @@ import { UtilityBill } from '../models/UtilityBill';
 import { Property } from '../models/Property';
 import { applyDerivedUnitStatus, syncPropertyUnitStatuses, syncUnitStatus } from '../services/unitStatusService';
 import { requireString } from '../utils/request';
+import { requireFields, requireNonNegative, requirePositive } from '../utils/validation';
 import { emitPortfolioEvent } from '../ws/emit';
 import { buildPaginatedResult, buildSearchRegexStage, isPaginatedRequest, parseListQuery, runPaginatedAggregate } from '../utils/listQuery';
 
@@ -78,10 +79,10 @@ export const getUnit = asyncHandler(async (req, res) => {
 
 export const createUnit = asyncHandler(async (req, res) => {
   const propertyId = requireString(req.params.propertyId, 'propertyId');
-  const { unitNumber, unitType, floor, size, monthlyRent, deposit, lastMeterReading } = req.body;
-  if (!unitNumber || !unitType || monthlyRent == null || deposit == null) {
-    throw new HttpError(400, 'unitNumber, unitType, monthlyRent and deposit are required');
-  }
+  const { unitNumber, unitType, floor, size, activeSince, monthlyRent, deposit, lastMeterReading } = req.body;
+  requireFields(req.body, ['unitNumber', 'unitType', 'monthlyRent', 'deposit']);
+  requirePositive(monthlyRent, 'monthlyRent');
+  requireNonNegative(deposit, 'deposit');
 
   const unit = await Unit.create({
     propertyId,
@@ -89,6 +90,7 @@ export const createUnit = asyncHandler(async (req, res) => {
     unitType,
     floor,
     size,
+    activeSince: activeSince ? new Date(activeSince) : undefined,
     monthlyRent,
     deposit,
     maintenanceMode: false,
@@ -109,6 +111,14 @@ export const updateUnit = asyncHandler(async (req, res) => {
   if (!unit) throw new HttpError(404, 'Unit not found');
 
   const { status, currentTenant, lastMeterReadingDate, maintenanceMode, maintenanceUntil, ...updates } = req.body;
+  if (Object.prototype.hasOwnProperty.call(updates, 'unitNumber') && !String(updates.unitNumber ?? '').trim()) {
+    throw new HttpError(400, 'unitNumber cannot be empty', { fields: ['unitNumber'] });
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'unitType') && !String(updates.unitType ?? '').trim()) {
+    throw new HttpError(400, 'unitType cannot be empty', { fields: ['unitType'] });
+  }
+  if (updates.monthlyRent != null) requirePositive(updates.monthlyRent, 'monthlyRent');
+  if (updates.deposit != null) requireNonNegative(updates.deposit, 'deposit');
   Object.assign(unit, updates);
   if (typeof maintenanceMode === 'boolean') {
     if (maintenanceMode && unit.currentTenant) {
@@ -140,9 +150,15 @@ export const getUnitDetails = asyncHandler(async (req, res) => {
 
   const [tenants, payments, rentRecords, utilityBills] = await Promise.all([
     Tenant.find({ propertyId, assignedUnit: unit._id }).sort({ createdAt: -1 }).select('fullName phone email isActive movedInDate movedOutDate createdAt'),
-    Payment.find({ propertyId, unitId: unit._id }).sort({ date: -1 }).select('type amount date notes tenantId'),
-    RentRecord.find({ propertyId, unitId: unit._id }).sort({ year: -1, month: -1 }),
-    UtilityBill.find({ propertyId, unitId: unit._id }).sort({ createdAt: -1 })
+    Payment.find({ propertyId, unitId: unit._id })
+      .sort({ date: -1 })
+      .select('type amount date notes tenantId')
+      .populate('tenantId', 'fullName phone depositAmount'),
+    RentRecord.find({ propertyId, unitId: unit._id })
+      .sort({ year: -1, month: -1 })
+      .populate('tenantId', 'fullName phone')
+      .populate('unitId', 'unitNumber'),
+    UtilityBill.find({ propertyId, unitId: unit._id }).sort({ createdAt: -1 }).populate('unitId', 'unitNumber')
   ]);
 
   res.json({

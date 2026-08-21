@@ -28,7 +28,7 @@ const TopBar = () => {
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const profileRef = useRef<HTMLDivElement | null>(null);
   const realtimeStatus = useRealtimeStatus();
-  const { notifications } = useNotificationsFeed();
+  const { notifications, unreadCount, markRead, markAllRead } = useNotificationsFeed();
 
   const recentNotifications = useMemo(() => notifications.slice(0, 4), [notifications]);
 
@@ -105,8 +105,6 @@ const TopBar = () => {
           ? t('Reconnecting')
           : t('Offline');
 
-  const unreadCount = notifications.length;
-
   return (
     <div className="relative z-40 mb-6 flex items-center justify-between gap-4">
       <div>
@@ -156,7 +154,18 @@ const TopBar = () => {
           </button>
           {showNotifications && (
             <div className="card absolute right-0 z-50 mt-2 w-80 p-4 shadow-[var(--shadow-lg)]">
-              <div className="text-sm font-semibold mb-3">{t('Recent updates')}</div>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold">{t('Recent updates')}</div>
+                {unreadCount > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-[var(--accent)] hover:underline"
+                    onClick={() => markAllRead()}
+                  >
+                    {t('Mark all as read')}
+                  </button>
+                )}
+              </div>
               <div className="space-y-3">
                 {recentNotifications.length ? (
                   recentNotifications.map((item) => (
@@ -165,18 +174,21 @@ const TopBar = () => {
                       type="button"
                       className="block w-full rounded-xl p-2 -mx-2 text-left text-sm hover:bg-[var(--surface-1)]"
                       onClick={() => {
+                        markRead(item.id);
                         setShowNotifications(false);
                         if (item.path) navigate(item.path);
                       }}
                     >
                       <div className="flex items-center gap-2">
-                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${notificationDotStyles[item.tone]}`} />
+                        {!item.read && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${notificationDotStyles[item.tone]}`} />}
                         <div className="flex-1 flex items-center justify-between gap-2">
-                          <div className={`font-medium ${notificationToneStyles[item.tone]}`}>{item.title}</div>
+                          <div className={item.read ? 'font-normal text-[var(--muted)]' : `font-semibold ${notificationToneStyles[item.tone]}`}>
+                            {item.title}
+                          </div>
                           <div className="shrink-0 text-xs text-[var(--muted)]">{item.time}</div>
                         </div>
                       </div>
-                      <div className="ml-3.5 text-xs text-[var(--muted)]">{item.description}</div>
+                      <div className={item.read ? 'text-xs text-[var(--muted)]' : 'ml-3.5 text-xs text-[var(--muted)]'}>{item.description}</div>
                     </button>
                   ))
                 ) : (

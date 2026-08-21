@@ -6,13 +6,18 @@ import TenantFormModal from '../components/TenantFormModal';
 import DepositPaymentModal from '../components/DepositPaymentModal';
 import Badge, { type BadgeTone } from '../components/Badge';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
-import { AlertTriangleIcon, CloseIcon, ShieldIcon, TenantsIcon, TransactionsIcon, UtilitiesIcon } from '../components/icons';
+import { AlertTriangleIcon, CloseIcon, EyeIcon, ShieldIcon, TenantsIcon, TransactionsIcon, UtilitiesIcon } from '../components/icons';
 import { formatDate, formatMonthKey, formatMonthYear } from '../lib/dateFormat';
 import { cachedGet, invalidateByTag, isCached } from '../lib/queryCache';
 import { toast } from '../lib/toast';
 import { confirmDialog } from '../lib/confirmDialog';
 import { SkeletonDetailHeader, SkeletonStatRow, SkeletonTable, SkeletonInfoCard } from '../components/Skeleton';
 import { formatCurrency } from '../lib/format';
+import FieldError from '../components/FieldError';
+import DatePicker from '../components/DatePicker';
+import ReceiptModal from '../components/ReceiptModal';
+import { buildRentReceipt, buildUtilityBillReceipt, type ReceiptData } from '../lib/receipt';
+import { isBlank, isPositiveNumber, isNonNegativeNumber, requiredMsg, type FieldErrors } from '../lib/validation';
 
 const unitTypeLabels: Record<string, string> = {
   single_room: 'Single Room',
@@ -61,6 +66,27 @@ const formatPaymentType = (payment: any) => {
   return payment.direction === 'out' ? 'Other (Cash Out)' : 'Other (Cash In)';
 };
 
+const buildGenericPaymentReceipt = (payment: any, propertyName: string, unitNumber?: string, propertyAddress?: string): ReceiptData => ({
+  title: `${formatPaymentType(payment)} Receipt`,
+  receiptNo: String(payment._id || '').slice(-8).toUpperCase(),
+  propertyName,
+  propertyAddress,
+  tenantName: payment.tenantId?.fullName,
+  unitNumber,
+  amountLabel: payment.direction === 'out' ? 'Amount Paid Out' : 'Amount',
+  amount: payment.amount || 0,
+  date: formatDate(payment.date),
+  items: [
+    { label: 'Type', value: formatPaymentType(payment) },
+    { label: 'Date', value: formatDate(payment.date) },
+    ...(payment.tenantId?.depositAmount != null
+      ? [{ label: 'Total Deposit Required', value: `₹${formatCurrency(payment.tenantId.depositAmount)}` }]
+      : []),
+    ...(payment.tenantId?.phone ? [{ label: 'Tenant Phone', value: payment.tenantId.phone }] : []),
+    { label: 'Notes', value: payment.notes || '-' }
+  ]
+});
+
 const UnitDetails = () => {
   const { propertyId, unitId } = useParams();
   const navigate = useNavigate();
@@ -86,10 +112,14 @@ const UnitDetails = () => {
     unitType: '1bhk',
     floor: '',
     size: '',
+    activeSince: '',
     monthlyRent: '',
     deposit: '',
     lastMeterReading: ''
   });
+  const [formErrors, setFormErrors] = useState<FieldErrors>({});
+  const [collectError, setCollectError] = useState<string | undefined>();
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   const load = async (options?: { force?: boolean }) => {
     if (!propertyId || !unitId) return;
@@ -115,6 +145,7 @@ const UnitDetails = () => {
         unitType: unitData.unit.unitType || '1bhk',
         floor: unitData.unit.floor || '',
         size: unitData.unit.size || '',
+        activeSince: unitData.unit.activeSince ? String(unitData.unit.activeSince).slice(0, 10) : '',
         monthlyRent: String(unitData.unit.monthlyRent ?? ''),
         deposit: String(unitData.unit.deposit ?? ''),
         lastMeterReading: String(unitData.unit.lastMeterReading ?? '')
@@ -152,10 +183,15 @@ const UnitDetails = () => {
     if (!collectRentRecord || !propertyId) return;
     const amount = Number(collectAmount);
     const remaining = Math.max(0, (collectRentRecord.rentAmount || 0) - (collectRentRecord.paidAmount || 0));
-    if (!amount || amount <= 0 || amount > remaining) {
-      toast.error('Enter an amount greater than 0 and not exceeding the remaining rent.');
+    if (!amount || amount <= 0) {
+      setCollectError('Enter an amount greater than 0');
       return;
     }
+    if (amount > remaining) {
+      setCollectError('Cannot exceed remaining rent');
+      return;
+    }
+    setCollectError(undefined);
     setCollectSaving(true);
     try {
       await api.post(`/properties/${propertyId}/rent-records/${collectRentRecord._id}/collect`, {
@@ -211,11 +247,22 @@ const UnitDetails = () => {
 
   const updateField = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+    setFormErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+
+  const validateForm = () => {
+    const next: FieldErrors = {};
+    if (isBlank(form.unitNumber)) next.unitNumber = requiredMsg('Unit number');
+    if (!isPositiveNumber(form.monthlyRent)) next.monthlyRent = 'Monthly rent must be greater than 0';
+    if (!isNonNegativeNumber(form.deposit)) next.deposit = 'Deposit must be a valid amount';
+    setFormErrors(next);
+    return !Object.values(next).some(Boolean);
   };
 
   const saveUnit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!propertyId || !unitId) return;
+    if (!validateForm()) return;
     setLoading(true);
     try {
       await api.patch(`/properties/${propertyId}/units/${unitId}`, {
@@ -223,6 +270,7 @@ const UnitDetails = () => {
         unitType: form.unitType,
         floor: form.floor || undefined,
         size: form.size || undefined,
+        activeSince: form.activeSince || undefined,
         monthlyRent: Number(form.monthlyRent),
         deposit: Number(form.deposit),
         lastMeterReading: form.lastMeterReading ? Number(form.lastMeterReading) : undefined
@@ -396,6 +444,7 @@ const UnitDetails = () => {
             setRecordsTab('rentRecords');
             setCollectRentRecord(oldestUnpaidRentRecord);
             setCollectAmount(String(Math.max(0, (oldestUnpaidRentRecord.rentAmount || 0) - (oldestUnpaidRentRecord.paidAmount || 0))));
+            setCollectError(undefined);
           }
         }
       : null,
@@ -428,7 +477,25 @@ const UnitDetails = () => {
     { key: 'amount', label: 'Amount', accessor: (payment) => payment.amount, render: (payment) => `₹${formatCurrency(payment.amount)}` },
     { key: 'date', label: 'Date', accessor: (payment) => new Date(payment.date).getTime(), render: (payment) => formatDate(payment.date) },
     { key: 'notes', label: 'Notes', accessor: (payment) => payment.notes || '-' },
-    { key: 'status', label: 'Status', sortable: false, render: () => <Badge tone="success">Paid</Badge> }
+    { key: 'status', label: 'Status', sortable: false, render: () => <Badge tone="success">Paid</Badge> },
+    {
+      key: 'view',
+      label: '',
+      sortable: false,
+      render: (payment) => (
+        <button
+          type="button"
+          className="icon-btn h-8 w-8"
+          onClick={(e) => {
+            e.stopPropagation();
+            setReceipt(buildGenericPaymentReceipt(payment, property?.name || '-', unit?.unitNumber, property?.address));
+          }}
+          title="View Receipt"
+        >
+          <EyeIcon width={15} height={15} />
+        </button>
+      )
+    }
   ];
 
   const maintenanceColumns: TableColumn<any>[] = [
@@ -451,7 +518,17 @@ const UnitDetails = () => {
             {maintenanceSaving ? 'Saving...' : 'Pay'}
           </button>
         ) : (
-          <span className="text-xs text-[var(--muted)]">-</span>
+          <button
+            type="button"
+            className="icon-btn h-8 w-8"
+            onClick={(e) => {
+              e.stopPropagation();
+              setReceipt(buildGenericPaymentReceipt(row, property?.name || '-', unit?.unitNumber, property?.address));
+            }}
+            title="View Receipt"
+          >
+            <EyeIcon width={15} height={15} />
+          </button>
         )
     }
   ];
@@ -474,20 +551,36 @@ const UnitDetails = () => {
       key: 'actions',
       label: 'Actions',
       sortable: false,
-      render: (record) =>
-        record.status !== 'paid' ? (
-          <button
-            className="btn btn-sm btn-success"
-            onClick={() => {
-              setCollectRentRecord(record);
-              setCollectAmount(String(Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0))));
-            }}
-          >
-            Pay
-          </button>
-        ) : (
-          <span className="text-xs text-[var(--muted)]">-</span>
-        )
+      render: (record) => (
+        <div className="flex items-center gap-1.5">
+          {record.status !== 'paid' && (
+            <button
+              className="btn btn-sm btn-success"
+              onClick={() => {
+                setCollectRentRecord(record);
+                setCollectAmount(String(Math.max(0, (record.rentAmount || 0) - (record.paidAmount || 0))));
+                setCollectError(undefined);
+              }}
+            >
+              Pay
+            </button>
+          )}
+          {(record.paidAmount || 0) > 0 && (
+            <button
+              type="button"
+              className="icon-btn h-8 w-8"
+              onClick={(e) => {
+                e.stopPropagation();
+                setReceipt(buildRentReceipt(record, property?.name || '-', property?.address));
+              }}
+              title="View Receipt"
+            >
+              <EyeIcon width={15} height={15} />
+            </button>
+          )}
+          {record.status === 'paid' && !(record.paidAmount > 0) && <span className="text-xs text-[var(--muted)]">-</span>}
+        </div>
+      )
     }
   ];
 
@@ -552,18 +645,30 @@ const UnitDetails = () => {
       key: 'actions',
       label: 'Actions',
       sortable: false,
-      render: (bill) =>
-        bill.status !== 'paid' ? (
+      render: (bill) => (
+        <div className="flex items-center gap-1.5">
+          {bill.status !== 'paid' && (
+            <button
+              className="btn btn-sm btn-success"
+              disabled={utilitySavingId === bill._id}
+              onClick={() => markUtilityBillPaid(bill)}
+            >
+              {utilitySavingId === bill._id ? 'Saving...' : 'Pay'}
+            </button>
+          )}
           <button
-            className="btn btn-sm btn-success"
-            disabled={utilitySavingId === bill._id}
-            onClick={() => markUtilityBillPaid(bill)}
+            type="button"
+            className="icon-btn h-8 w-8"
+            onClick={(e) => {
+              e.stopPropagation();
+              setReceipt(buildUtilityBillReceipt(bill, property?.name || '-', property?.address));
+            }}
+            title="View Receipt"
           >
-            {utilitySavingId === bill._id ? 'Saving...' : 'Pay'}
+            <EyeIcon width={15} height={15} />
           </button>
-        ) : (
-          <span className="text-xs text-[var(--muted)]">-</span>
-        )
+        </div>
+      )
     }
   ];
 
@@ -610,6 +715,11 @@ const UnitDetails = () => {
                   {unit.size} sq ft
                 </span>
               )}
+              {unit.activeSince && (
+                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-[var(--surface-2)] text-[var(--muted)]">
+                  Active since {formatDate(unit.activeSince, { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+              )}
               <Badge tone={unitStatusTone(unit.status)}>{formatUnitStatus(unit.status)}</Badge>
             </div>
             {unit.maintenanceMode && unit.maintenanceUntil && (
@@ -636,7 +746,10 @@ const UnitDetails = () => {
               </button>
               <button
                 className="btn btn-warning"
-                onClick={() => setShowEdit(true)}
+                onClick={() => {
+                  setFormErrors({});
+                  setShowEdit(true);
+                }}
               >
                 Edit
               </button>
@@ -846,21 +959,28 @@ const UnitDetails = () => {
           <div className="w-full max-w-4xl bg-white rounded-3xl border border-black/5 shadow-[0_30px_80px_rgba(15,23,42,0.25)] p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="text-lg font-semibold">Edit Unit</div>
-              <button className="modal-close-btn" onClick={() => setShowEdit(false)} aria-label="Close">
+              <button
+                className="modal-close-btn"
+                onClick={() => {
+                  setFormErrors({});
+                  setShowEdit(false);
+                }}
+                aria-label="Close"
+              >
                 <CloseIcon width={18} height={18} />
               </button>
             </div>
-            <form onSubmit={saveUnit} className="space-y-4">
+            <form onSubmit={saveUnit} noValidate className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Unit Number</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${formErrors.unitNumber ? 'input-error' : ''}`}
                     placeholder="Unit number"
                     value={form.unitNumber}
                     onChange={(e) => updateField('unitNumber', e.target.value)}
-                    required
                   />
+                  <FieldError message={formErrors.unitNumber} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Unit Type</label>
@@ -895,24 +1015,32 @@ const UnitDetails = () => {
                   />
                 </div>
                 <div>
+                  <label className="text-xs text-[var(--muted)]">Active Since (Optional)</label>
+                  <DatePicker
+                    className="w-full px-3 py-2 mt-1 rounded-xl border border-black/10"
+                    value={form.activeSince}
+                    onChange={(next) => updateField('activeSince', next)}
+                  />
+                </div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Monthly Rent</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${formErrors.monthlyRent ? 'input-error' : ''}`}
                     placeholder="Monthly rent"
                     value={form.monthlyRent}
                     onChange={(e) => updateField('monthlyRent', e.target.value)}
-                    required
                   />
+                  <FieldError message={formErrors.monthlyRent} />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs text-[var(--muted)]">Deposit</label>
                   <input
-                    className="w-full px-3 py-2 mt-1"
+                    className={`w-full px-3 py-2 mt-1 ${formErrors.deposit ? 'input-error' : ''}`}
                     placeholder="Deposit"
                     value={form.deposit}
                     onChange={(e) => updateField('deposit', e.target.value)}
-                    required
                   />
+                  <FieldError message={formErrors.deposit} />
                 </div>
                 <div>
                   <label className="text-xs text-[var(--muted)]">Last Meter Reading</label>
@@ -935,7 +1063,10 @@ const UnitDetails = () => {
                 <button
                   type="button"
                   className="btn btn-cancel"
-                  onClick={() => setShowEdit(false)}
+                  onClick={() => {
+                    setFormErrors({});
+                    setShowEdit(false);
+                  }}
                 >
                   Cancel
                 </button>
@@ -977,34 +1108,51 @@ const UnitDetails = () => {
               </div>
               <button
                 className="modal-close-btn"
-                onClick={() => setCollectRentRecord(null)}
+                onClick={() => {
+                  setCollectError(undefined);
+                  setCollectRentRecord(null);
+                }}
                 disabled={collectSaving}
                 aria-label="Close"
               >
                 <CloseIcon width={18} height={18} />
               </button>
             </div>
-            <label className="text-xs text-[var(--muted)]">Amount Received</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              className="mt-1 w-full px-3 py-2"
-              value={collectAmount}
-              onChange={(e) => setCollectAmount(e.target.value)}
-              autoFocus
-            />
+            <div className="relative">
+              <label className="text-xs text-[var(--muted)]">Amount Received</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className={`mt-1 w-full px-3 py-2 ${collectError ? 'input-error' : ''}`}
+                value={collectAmount}
+                onChange={(e) => {
+                  setCollectAmount(e.target.value);
+                  setCollectError(undefined);
+                }}
+                autoFocus
+              />
+              <FieldError message={collectError} />
+            </div>
             <div className="mt-4 flex items-center gap-3">
               <button className="btn btn-primary" disabled={collectSaving} onClick={collectRent}>
                 {collectSaving ? 'Saving...' : 'Collect'}
               </button>
-              <button className="btn btn-cancel" disabled={collectSaving} onClick={() => setCollectRentRecord(null)}>
+              <button
+                className="btn btn-cancel"
+                disabled={collectSaving}
+                onClick={() => {
+                  setCollectError(undefined);
+                  setCollectRentRecord(null);
+                }}
+              >
                 Cancel
               </button>
             </div>
           </div>
         </div>
       )}
+      <ReceiptModal data={receipt} onClose={() => setReceipt(null)} />
     </div>
   );
 };

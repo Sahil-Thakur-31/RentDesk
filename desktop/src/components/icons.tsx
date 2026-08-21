@@ -112,6 +112,18 @@ export const ChevronDownIcon = (props: IconProps) => (
   </svg>
 );
 
+export const ChevronLeftIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <path d="m15 6-6 6 6 6" />
+  </svg>
+);
+
+export const ChevronRightIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <path d="m9 6 6 6-6 6" />
+  </svg>
+);
+
 export const CheckCircleIcon = (props: IconProps) => (
   <svg {...base(props)}>
     <circle cx="12" cy="12" r="9" />
@@ -151,6 +163,13 @@ export const CloseIcon = (props: IconProps) => (
 export const PlusIcon = (props: IconProps) => (
   <svg {...base(props)}>
     <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
+export const PencilIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
   </svg>
 );
 
@@ -213,6 +232,52 @@ export const WifiOffIcon = (props: IconProps) => (
     <path d="M1.5 8.5A16 16 0 0 1 5.5 6" />
     <path d="M22.5 8.5a16 16 0 0 0-5-2.9" />
     <path d="M12 20h.01" />
+  </svg>
+);
+
+export const GlobeIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18M12 3a14.5 14.5 0 0 1 0 18M12 3a14.5 14.5 0 0 0 0 18" />
+  </svg>
+);
+
+export const TrashIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <path d="M4 7h16M9 7V4.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V7M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7a1.5 1.5 0 0 0 1.5-1.4L18 7" />
+    <path d="M10 11v6M14 11v6" />
+  </svg>
+);
+
+export const DatabaseIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <ellipse cx="12" cy="5.5" rx="8" ry="3" />
+    <path d="M4 5.5V18c0 1.7 3.6 3 8 3s8-1.3 8-3V5.5" />
+    <path d="M4 11.75C4 13.4 7.6 14.75 12 14.75s8-1.35 8-3" />
+  </svg>
+);
+
+export const KeyIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <circle cx="8" cy="15" r="4.5" />
+    <path d="M11.5 11.5 20 3M16 6l2.5 2.5M13 9l2 2" />
+  </svg>
+);
+
+export const UsersIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <circle cx="9" cy="8" r="3.2" />
+    <path d="M3.5 20c0-3.3 2.6-6 6-6s6 2.7 6 6" />
+    <circle cx="17.5" cy="7.5" r="2.4" />
+    <path d="M15.7 12.4c2.6.3 4.6 2.5 4.8 5.3" />
+  </svg>
+);
+
+export const PrinterIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <path d="M6 9V3h12v6" />
+    <rect x="4" y="9" width="16" height="8" rx="1.5" />
+    <path d="M6 14h12v7H6z" />
   </svg>
 );
 

@@ -23,20 +23,18 @@ const StatCard = ({ label, value, subLabel, tone = 'default', icon }: StatCardPr
   return (
     <div className="card card-hover relative overflow-hidden p-5">
       <div className={`absolute left-0 top-0 h-1 w-full ${toneStyle.bar}`} />
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">{t(label)}</div>
-          <div className={`mt-2 text-2xl font-semibold ${toneStyle.text}`}>{value}</div>
-          {subLabel && (
-            <div className="mt-1 text-xs text-[var(--muted)]">{typeof subLabel === 'string' ? t(subLabel) : subLabel}</div>
-          )}
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">{t(label)}</div>
         {icon && (
           <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${toneStyle.iconBg} ${toneStyle.iconText}`}>
             {icon}
           </div>
         )}
       </div>
+      <div className={`mt-2 text-xl font-semibold whitespace-nowrap ${toneStyle.text}`}>{value}</div>
+      {subLabel && (
+        <div className="mt-1 text-xs text-[var(--muted)]">{typeof subLabel === 'string' ? t(subLabel) : subLabel}</div>
+      )}
     </div>
   );
 };

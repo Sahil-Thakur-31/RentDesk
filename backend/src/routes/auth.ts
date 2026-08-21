@@ -4,6 +4,7 @@ import {
   login,
   register,
   me,
+  updateMe,
   requestPasswordResetOtp,
   resetPasswordWithOtp
 } from '../controllers/authController';
@@ -16,6 +17,7 @@ router.post('/login', login);
 router.post('/forgot-password', requestPasswordResetOtp);
 router.post('/reset-password', resetPasswordWithOtp);
 router.get('/me', requireAuth, me);
+router.patch('/me', requireAuth, updateMe);
 router.delete('/me', requireAuth, deleteAccount);
 
 export default router;

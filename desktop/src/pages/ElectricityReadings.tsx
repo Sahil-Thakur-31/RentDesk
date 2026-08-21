@@ -3,10 +3,12 @@ import api from '../lib/api';
 import PropertyPicker from '../components/PropertyPicker';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
 import { UnitsIcon } from '../components/icons';
+import DatePicker from '../components/DatePicker';
 import { shiftMonthValue } from '../lib/dateFormat';
 import { cachedGet, invalidateByTag, isCached, useCachedQuery } from '../lib/queryCache';
 import { toast } from '../lib/toast';
 import { formatCurrency } from '../lib/format';
+import FieldError from '../components/FieldError';
 
 type ReadingRow = {
   propertyId: string;
@@ -204,23 +206,20 @@ const ElectricityReadings = () => {
       accessor: (row) => (row.currentReading ? Number(row.currentReading) : null),
       sortable: false,
       render: (row) => (
-        <>
+        <div className="relative">
           <input
-            className={`border rounded-lg px-3 py-2 text-sm w-32 ${
-              row.isInvalid ? 'border-red-300 bg-red-50' : 'border-black/10'
-            }`}
+            className={`border rounded-lg px-3 py-2 text-sm w-32 ${row.isInvalid ? 'input-error' : 'border-black/10'}`}
             value={row.currentReading}
             onChange={(e) => updateReading(row.unitId, e.target.value)}
             placeholder="Reading"
           />
-          {row.invalidMessage ? (
-            <div className="mt-1 text-xs text-red-600">{row.invalidMessage}</div>
-          ) : row.nextReading != null ? (
+          <FieldError message={row.invalidMessage} />
+          {!row.invalidMessage && row.nextReading != null ? (
             <div className="mt-1 text-xs text-[var(--muted)]">
               Next saved reading: {row.nextReading}
             </div>
           ) : null}
-        </>
+        </div>
       )
     },
     { key: 'calculatedUnits', label: 'Units Used', accessor: (row) => row.calculatedUnits },
@@ -234,21 +233,21 @@ const ElectricityReadings = () => {
           <PropertyPicker properties={properties} value={propertyId} onChange={setPropertyId} />
           <button
             type="button"
-            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
             onClick={() => setMonth((prev) => shiftMonthValue(prev, -1))}
             aria-label="Previous month"
           >
             ←
           </button>
-          <input
-            type="month"
-            className="border border-black/10 rounded-lg px-3 py-2 text-sm"
+          <DatePicker
+            picker="month"
+            className="w-[150px] px-3 py-2 rounded-xl border border-black/10"
             value={month}
-            onChange={(e) => setMonth(e.target.value)}
+            onChange={(next) => setMonth(next)}
           />
           <button
             type="button"
-            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+            className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
             onClick={() => setMonth((prev) => shiftMonthValue(prev, 1))}
             aria-label="Next month"
           >

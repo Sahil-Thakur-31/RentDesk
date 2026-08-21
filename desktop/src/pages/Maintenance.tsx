@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import PropertyPicker from '../components/PropertyPicker';
 import SortableTable, { type TableColumn } from '../components/SortableTable';
-import { UtilitiesIcon } from '../components/icons';
+import { EyeIcon, UtilitiesIcon } from '../components/icons';
+import DatePicker from '../components/DatePicker';
+import ReceiptModal from '../components/ReceiptModal';
+import { buildMaintenanceExpenseReceipt, type ReceiptData } from '../lib/receipt';
 import { formatDate, shiftMonthValue } from '../lib/dateFormat';
 import { cachedGet, isCached, useCachedQuery } from '../lib/queryCache';
 import { formatCurrency } from '../lib/format';
@@ -20,6 +23,7 @@ const Maintenance = () => {
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
 
   const isServerMode = Boolean(propertyId);
 
@@ -67,7 +71,8 @@ const Maintenance = () => {
         const merged = responses.flatMap((data, index) =>
           (data || []).map((record: any) => ({
             ...record,
-            _propertyName: properties[index].name
+            _propertyName: properties[index].name,
+            _propertyId: properties[index]._id
           }))
         );
         setRecords(merged);
@@ -90,7 +95,27 @@ const Maintenance = () => {
     { key: 'date', label: 'Date', accessor: (record) => new Date(record.date).getTime(), render: (record) => formatDate(record.date) },
     { key: 'category', label: 'Category', accessor: (record) => record.category },
     { key: 'amount', label: 'Amount', accessor: (record) => record.amount, render: (record) => `₹${formatCurrency(record.amount)}` },
-    { key: 'paidTo', label: 'Paid To', sortable: false, accessor: (record) => record.paidTo || '-' }
+    { key: 'paidTo', label: 'Paid To', sortable: false, accessor: (record) => record.paidTo || '-' },
+    {
+      key: 'view',
+      label: '',
+      sortable: false,
+      render: (record) => (
+        <button
+          type="button"
+          className="icon-btn h-8 w-8"
+          onClick={(e) => {
+            e.stopPropagation();
+            const property = properties.find((item) => item._id === (record._propertyId || propertyId));
+            const propertyName = record._propertyName || property?.name || '-';
+            setReceipt(buildMaintenanceExpenseReceipt(record, propertyName, property?.address));
+          }}
+          title="View Receipt"
+        >
+          <EyeIcon width={15} height={15} />
+        </button>
+      )
+    }
   ];
 
   return (
@@ -98,21 +123,21 @@ const Maintenance = () => {
       <div className="flex flex-wrap items-center justify-end gap-3">
         <button
           type="button"
-          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
           onClick={() => setMonth((prev) => shiftMonthValue(prev, -1))}
           aria-label="Previous month"
         >
           ←
         </button>
-        <input
-          type="month"
-          className="border border-black/10 rounded-lg px-3 py-2 text-sm"
+        <DatePicker
+          picker="month"
+          className="w-[150px] px-3 py-2 rounded-xl border border-black/10"
           value={month}
-          onChange={(e) => setMonth(e.target.value)}
+          onChange={(next) => setMonth(next)}
         />
         <button
           type="button"
-          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)] hover:-translate-y-0.5 active:translate-y-0"
+          className="h-10 w-10 rounded-xl border border-black/10 bg-white text-slate-700 text-2xl font-black leading-none shadow-sm transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
           onClick={() => setMonth((prev) => shiftMonthValue(prev, 1))}
           aria-label="Next month"
         >
@@ -159,6 +184,7 @@ const Maintenance = () => {
             : undefined
         }
       />
+      <ReceiptModal data={receipt} onClose={() => setReceipt(null)} />
     </div>
   );
 };

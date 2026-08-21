@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cachedGet } from './queryCache';
+import { formatCurrency } from './format';
 
 export type NotificationItem = {
   id: string;
@@ -8,11 +9,15 @@ export type NotificationItem = {
   time: string;
   tone: 'info' | 'warning' | 'success';
   path?: string;
+  read: boolean;
 };
+
+type RawNotificationItem = Omit<NotificationItem, 'read'>;
 
 const getId = (value: any) => String(value?._id || value || '');
 const today = () => new Date();
 const monthValue = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+const rupee = (amount: number) => `₹${formatCurrency(amount)}`;
 
 const relativeTime = (dateValue: string | Date) => {
   const diffMs = today().getTime() - new Date(dateValue).getTime();
@@ -24,9 +29,55 @@ const relativeTime = (dateValue: string | Date) => {
   return `${days} day${days === 1 ? '' : 's'} ago`;
 };
 
+const READ_STORAGE_KEY = 'rentdesk_read_notifications_v1';
+
+const loadReadIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(READ_STORAGE_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+};
+
+let readIds = loadReadIds();
+const readListeners = new Set<() => void>();
+
+const persistReadIds = () => {
+  try {
+    localStorage.setItem(READ_STORAGE_KEY, JSON.stringify(Array.from(readIds)));
+  } catch {
+    // ignore storage failures
+  }
+  readListeners.forEach((listener) => listener());
+};
+
+export const isNotificationRead = (id: string) => readIds.has(id);
+
+export const markNotificationRead = (id: string) => {
+  if (readIds.has(id)) return;
+  readIds = new Set(readIds).add(id);
+  persistReadIds();
+};
+
+export const markAllNotificationsRead = (ids: string[]) => {
+  readIds = new Set(readIds);
+  ids.forEach((id) => readIds.add(id));
+  persistReadIds();
+};
+
 export const useNotificationsFeed = () => {
-  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [items, setItems] = useState<RawNotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [, forceTick] = useState(0);
+
+  useEffect(() => {
+    const listener = () => forceTick((tick) => tick + 1);
+    readListeners.add(listener);
+    return () => {
+      readListeners.delete(listener);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -60,7 +111,7 @@ export const useNotificationsFeed = () => {
               cachedGet(`/properties/${property._id}/maintenance`)
             ]);
 
-            const next: NotificationItem[] = [];
+            const next: RawNotificationItem[] = [];
             const payments = paymentData || [];
             const rentRecords = rentData || [];
             const utilityBills = utilityData || [];
@@ -68,6 +119,12 @@ export const useNotificationsFeed = () => {
             const maintenanceExpenses = (maintenanceData || []).filter((item: any) => {
               const recordDate = new Date(item.date);
               return recordDate >= new Date(start) && recordDate <= new Date(end);
+            });
+
+            const tenantNameByUnit = new Map<string, string>();
+            activeTenants.forEach((tenant: any) => {
+              const unitId = getId(tenant.assignedUnit?._id || tenant.assignedUnit);
+              if (unitId) tenantNameByUnit.set(unitId, tenant.fullName);
             });
 
             if (now.getDate() >= reminderStart(Number(portfolio.rentDueDay || 5))) {
@@ -79,7 +136,7 @@ export const useNotificationsFeed = () => {
                   next.push({
                     id: `rent-${record._id}`,
                     title: 'Rent due',
-                    description: `${record.tenantId?.fullName || record.unitId?.unitNumber || 'Tenant'} - ${property.name} - ?${remaining} pending`,
+                    description: `${record.tenantId?.fullName || record.unitId?.unitNumber || 'Tenant'} - ${property.name} - ${rupee(remaining)} pending`,
                     time: `Due on ${portfolio.rentDueDay}`,
                     tone: 'warning',
                     path: record.tenantId?._id ? `/properties/${property._id}/tenants/${record.tenantId._id}` : `/properties/${property._id}`
@@ -91,10 +148,12 @@ export const useNotificationsFeed = () => {
               utilityBills
                 .filter((bill: any) => bill.status === 'unpaid' || bill.status === 'partial')
                 .forEach((bill: any) => {
+                  const unitId = getId(bill.unitId?._id || bill.unitId);
+                  const tenantName = bill.tenantId?.fullName || tenantNameByUnit.get(unitId) || bill.unitId?.unitNumber || 'Tenant';
                   next.push({
                     id: `utility-${bill._id}`,
                     title: 'Electricity due',
-                    description: `${bill.tenantId?.fullName || bill.unitId?.currentTenant?.fullName || bill.unitId?.unitNumber || 'Tenant'} - ${property.name} - ?${bill.amount} pending`,
+                    description: `${tenantName} - ${property.name} - ${rupee(bill.amount)} pending`,
                     time: `Due on ${portfolio.electricityDueDay}`,
                     tone: 'warning',
                     path: bill.unitId?._id ? `/properties/${property._id}/units/${bill.unitId._id}` : `/properties/${property._id}`
@@ -114,7 +173,7 @@ export const useNotificationsFeed = () => {
                 next.push({
                   id: `maintenance-due-${tenant._id}`,
                   title: 'Maintenance due',
-                  description: `${tenant.fullName} - ${property.name} - ?${property.maintenanceCharge || 0} pending`,
+                  description: `${tenant.fullName} - ${property.name} - ${rupee(property.maintenanceCharge || 0)} pending`,
                   time: `Due on ${portfolio.maintenanceDueDay}`,
                   tone: 'warning',
                   path: tenant._id ? `/properties/${property._id}/tenants/${tenant._id}` : `/properties/${property._id}`
@@ -136,7 +195,7 @@ export const useNotificationsFeed = () => {
                         : payment.type === 'deposit'
                           ? 'Deposit received'
                           : 'Payment update',
-                description: `${payment.tenantId?.fullName || payment.unitId?.unitNumber || property.name} - ?${payment.amount}${payment.notes ? ` - ${payment.notes}` : ''}`,
+                description: `${payment.tenantId?.fullName || payment.unitId?.unitNumber || property.name} - ${rupee(payment.amount)}${payment.notes ? ` - ${payment.notes}` : ''}`,
                 time: relativeTime(payment.date),
                 tone: payment.type === 'refund' ? 'info' : 'success',
                 path: payment.tenantId?._id
@@ -151,7 +210,7 @@ export const useNotificationsFeed = () => {
               next.push({
                 id: `expense-${expense._id}`,
                 title: 'Maintenance spent',
-                description: `${property.name} - ?${expense.amount}${expense.category ? ` - ${expense.category}` : ''}`,
+                description: `${property.name} - ${rupee(expense.amount)}${expense.category ? ` - ${expense.category}` : ''}`,
                 time: relativeTime(expense.date),
                 tone: 'info',
                 path: '/transactions'
@@ -180,5 +239,14 @@ export const useNotificationsFeed = () => {
     };
   }, []);
 
-  return useMemo(() => ({ notifications: items, loading }), [items, loading]);
+  const notifications: NotificationItem[] = items.map((item) => ({ ...item, read: isNotificationRead(item.id) }));
+  const unreadCount = notifications.filter((item) => !item.read).length;
+
+  return {
+    notifications,
+    loading,
+    unreadCount,
+    markRead: markNotificationRead,
+    markAllRead: () => markAllNotificationsRead(items.map((item) => item.id))
+  };
 };

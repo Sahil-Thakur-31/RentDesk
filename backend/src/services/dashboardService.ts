@@ -1,4 +1,5 @@
 import dayjs from 'dayjs';
+import { Types } from 'mongoose';
 import { Property } from '../models/Property';
 import { Unit } from '../models/Unit';
 import { RentRecord } from '../models/RentRecord';
@@ -35,46 +36,55 @@ export const buildDashboard = async (userId: string, month?: number, year?: numb
         depositCollected: 0,
         depositPending: 0,
         otherCashIntake: 0,
-        otherCashSpent: 0
+        otherCashSpent: 0,
+        monthlyRevenue: 0,
+        lifetimeRevenue: 0
       },
       charts: { rentCollection: [], maintenanceExpenses: [] },
       lists: { pendingRentTenants: [] }
     };
   }
 
-  const accessiblePropertyIds = await getAccessiblePropertyIdsForUser(user);
-  const scopedPropertyIds = propertyId ? accessiblePropertyIds.filter((id) => id === propertyId) : accessiblePropertyIds;
-  const properties = await Property.find({ _id: { $in: scopedPropertyIds }, isArchived: false });
-  const propertyIds = properties.map((p) => p._id);
-  await syncMultiplePropertyUnitStatuses(propertyIds);
-
-  const [totalUnits, occupiedUnits, vacantUnits] = await Promise.all([
-    Unit.countDocuments({ propertyId: { $in: propertyIds }, isArchived: false }),
-    Unit.countDocuments({ propertyId: { $in: propertyIds }, status: 'occupied', isArchived: false }),
-    Unit.countDocuments({ propertyId: { $in: propertyIds }, status: 'vacant', isArchived: false })
-  ]);
-
-  const occupiedByProperty = await Unit.aggregate([
-    { $match: { propertyId: { $in: propertyIds }, status: 'occupied', isArchived: false } },
-    { $group: { _id: '$propertyId', count: { $sum: 1 } } }
-  ]);
-  const occupiedMap = new Map<string, number>(
-    occupiedByProperty.map((item) => [item._id.toString(), item.count])
-  );
-  const maintenanceExpected = properties.reduce((sum, property) => {
-    const count = occupiedMap.get(property._id.toString()) || 0;
-    const rate = property.maintenanceCharge || 0;
-    return sum + count * rate;
-  }, 0);
   const monthStart = current.month(targetMonth - 1).year(targetYear).startOf('month').toDate();
   const monthEnd = current.month(targetMonth - 1).year(targetYear).endOf('month').toDate();
 
-  const expectedRentAgg = await Unit.aggregate([
-    { $match: { propertyId: { $in: propertyIds }, status: 'occupied', isArchived: false } },
-    { $group: { _id: null, total: { $sum: '$monthlyRent' } } }
-  ]);
+  const accessiblePropertyIds = await getAccessiblePropertyIdsForUser(user);
+  const scopedPropertyIds = propertyId ? accessiblePropertyIds.filter((id) => id === propertyId) : accessiblePropertyIds;
+  const allProperties = await Property.find({ _id: { $in: scopedPropertyIds }, isArchived: false });
+  // Only count a property (and its units) for a month once it was actually active —
+  // otherwise a property added this month would still show up in past months' totals.
+  const properties = allProperties.filter((property) => !property.activeSince || property.activeSince <= monthEnd);
+  const propertyIds = properties.map((p) => p._id);
+  await syncMultiplePropertyUnitStatuses(propertyIds);
 
-  const expectedRent = expectedRentAgg[0]?.total || 0;
+  const totalUnits = await Unit.countDocuments({
+    propertyId: { $in: propertyIds },
+    isArchived: false,
+    $or: [{ activeSince: { $exists: false } }, { activeSince: null }, { activeSince: { $lte: monthEnd } }]
+  });
+
+  // "Expected" figures reflect who was actually a tenant during the selected month,
+  // not who currently occupies a unit — otherwise past months would show rent/deposit
+  // for tenants that hadn't moved in yet.
+  const tenantsActiveDuringMonth = await Tenant.find({
+    propertyId: { $in: propertyIds },
+    movedInDate: { $lte: monthEnd },
+    $or: [{ movedOutDate: { $exists: false } }, { movedOutDate: null }, { movedOutDate: { $gte: monthStart } }]
+  }).select('propertyId assignedUnit rentAmount depositAmount');
+
+  const occupiedUnitIds = new Set(tenantsActiveDuringMonth.map((tenant) => tenant.assignedUnit.toString()));
+  const occupiedUnits = occupiedUnitIds.size;
+  const vacantUnits = Math.max(0, totalUnits - occupiedUnits);
+
+  const expectedRent = tenantsActiveDuringMonth.reduce((sum, tenant) => sum + (tenant.rentAmount || 0), 0);
+
+  const maintenanceChargeByProperty = new Map<string, number>(
+    properties.map((property) => [property._id.toString(), property.maintenanceCharge || 0])
+  );
+  const maintenanceExpected = tenantsActiveDuringMonth.reduce(
+    (sum, tenant) => sum + (maintenanceChargeByProperty.get(tenant.propertyId.toString()) || 0),
+    0
+  );
 
   const rentRecords = await RentRecord.aggregate([
     {
@@ -136,7 +146,9 @@ export const buildDashboard = async (userId: string, month?: number, year?: numb
     .populate('unitId', 'unitNumber')
     .limit(10);
 
-  const [maintenanceCollectedAgg, maintenanceSpentAgg, electricityStatusAgg, activeTenants, depositPayments, otherCashAgg] =
+  const monthTenantIds = tenantsActiveDuringMonth.map((tenant) => tenant._id);
+
+  const [maintenanceCollectedAgg, maintenanceSpentAgg, electricityStatusAgg, depositPayments, otherCashAgg] =
     await Promise.all([
       Payment.aggregate([
         {
@@ -168,10 +180,11 @@ export const buildDashboard = async (userId: string, month?: number, year?: numb
           }
         }
       ]),
-      Tenant.find({ propertyId: { $in: propertyIds }, isActive: true }).select('depositAmount'),
       Payment.find({
         propertyId: { $in: propertyIds },
-        type: { $in: ['deposit', 'refund'] }
+        tenantId: { $in: monthTenantIds },
+        type: { $in: ['deposit', 'refund'] },
+        date: { $lte: monthEnd }
       }).select('type amount tenantId'),
       Payment.aggregate([
         {
@@ -199,7 +212,7 @@ export const buildDashboard = async (userId: string, month?: number, year?: numb
     .reduce((sum, item) => sum + item.total, 0);
   const electricityCollected = Math.max(0, electricityTotal - electricityPending);
 
-  const depositRequired = activeTenants.reduce((sum, tenant) => sum + (tenant.depositAmount || 0), 0);
+  const depositRequired = tenantsActiveDuringMonth.reduce((sum, tenant) => sum + (tenant.depositAmount || 0), 0);
   const depositHeldByTenant = new Map<string, number>();
   depositPayments.forEach((payment) => {
     const tenantKey = payment.tenantId?.toString();
@@ -211,11 +224,54 @@ export const buildDashboard = async (userId: string, month?: number, year?: numb
         : currentHeld - (payment.amount || 0);
     depositHeldByTenant.set(tenantKey, nextHeld);
   });
-  const depositCollected = activeTenants.reduce((sum, tenant) => {
+  const depositCollected = tenantsActiveDuringMonth.reduce((sum, tenant) => {
     return sum + Math.max(0, depositHeldByTenant.get(tenant._id.toString()) || 0);
   }, 0);
   const otherCashIntake = otherCashAgg[0]?.inTotal || 0;
   const otherCashSpent = otherCashAgg[0]?.outTotal || 0;
+
+  // Net revenue excludes electricity entirely (it's a pass-through collection, not landlord income)
+  // and subtracts every outgoing expense: maintenance spent and other cash paid out.
+  const monthlyRevenue = collectedRent + actualMaintenanceCollected + otherCashIntake - maintenanceSpent - otherCashSpent;
+
+  const accessiblePropertyObjectIds = accessiblePropertyIds.map((id) => new Types.ObjectId(id));
+
+  const [lifetimeRentAgg, lifetimeMaintenanceCollectedAgg, lifetimeMaintenanceSpentAgg, lifetimeOtherCashAgg] = await Promise.all([
+    RentRecord.aggregate([
+      { $match: { propertyId: { $in: accessiblePropertyObjectIds }, status: { $in: ['paid', 'partial'] } } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, '$rentAmount', { $ifNull: ['$paidAmount', 0] }] } }
+        }
+      }
+    ]),
+    Payment.aggregate([
+      { $match: { propertyId: { $in: accessiblePropertyObjectIds }, type: 'maintenance', notes: /maintenance collected/i } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]),
+    MaintenanceExpense.aggregate([
+      { $match: { propertyId: { $in: accessiblePropertyObjectIds } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]),
+    Payment.aggregate([
+      { $match: { propertyId: { $in: accessiblePropertyObjectIds }, type: 'other' } },
+      {
+        $group: {
+          _id: null,
+          inTotal: { $sum: { $cond: [{ $eq: ['$direction', 'out'] }, 0, '$amount'] } },
+          outTotal: { $sum: { $cond: [{ $eq: ['$direction', 'out'] }, '$amount', 0] } }
+        }
+      }
+    ])
+  ]);
+
+  const lifetimeRevenue =
+    (lifetimeRentAgg[0]?.total || 0) +
+    (lifetimeMaintenanceCollectedAgg[0]?.total || 0) +
+    (lifetimeOtherCashAgg[0]?.inTotal || 0) -
+    (lifetimeMaintenanceSpentAgg[0]?.total || 0) -
+    (lifetimeOtherCashAgg[0]?.outTotal || 0);
 
   return {
     totals: {
@@ -239,7 +295,9 @@ export const buildDashboard = async (userId: string, month?: number, year?: numb
       depositCollected,
       depositPending: Math.max(0, depositRequired - depositCollected),
       otherCashIntake,
-      otherCashSpent
+      otherCashSpent,
+      monthlyRevenue,
+      lifetimeRevenue
     },
     charts: {
       rentCollection: rentCollectionChart,

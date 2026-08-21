@@ -72,6 +72,7 @@ export const addPropertyAccessToMember = (member: any, propertyId: any) => {
 
 export const ensurePropertyPortfolio = async (property: any) => {
   let portfolio = property.portfolioId ? await Portfolio.findById(property.portfolioId) : null;
+  let propertyChanged = false;
 
   if (!portfolio) {
     portfolio = await Portfolio.findOne({ ownerUser: property.createdBy }).sort({ createdAt: 1 });
@@ -89,6 +90,7 @@ export const ensurePropertyPortfolio = async (property: any) => {
       });
     }
     property.portfolioId = portfolio._id;
+    propertyChanged = true;
   }
 
   let changed = false;
@@ -139,7 +141,9 @@ export const ensurePropertyPortfolio = async (property: any) => {
     }
   }
 
-  await property.save();
+  if (propertyChanged) {
+    await property.save();
+  }
   if (changed) {
     await portfolio.save();
   }

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import api from '../lib/api';
 import Screen from '../components/Screen';
@@ -10,11 +10,14 @@ import MonthSwitcher from '../components/MonthSwitcher';
 import { usePortfolio } from '../context/PortfolioContext';
 import { colors, fonts } from '../lib/theme';
 import { getCurrentDateValue, getCurrentMonthValue, getMonthParts } from '../lib/date';
+import { downloadAndShareReport } from '../lib/exportFile';
+
+type ReportType = 'rent' | 'income' | 'utility' | 'maintenance' | 'tenant';
 
 const ReportsScreen = () => {
   const { properties } = usePortfolio();
   const [propertyId, setPropertyId] = useState('');
-  const [type, setType] = useState<'rent' | 'income' | 'utility' | 'maintenance' | 'tenant'>('rent');
+  const [type, setType] = useState<ReportType>('rent');
   const [monthKey, setMonthKey] = useState(getCurrentMonthValue());
   const [start, setStart] = useState(getCurrentDateValue());
   const [end, setEnd] = useState(getCurrentDateValue());
@@ -22,6 +25,7 @@ const ReportsScreen = () => {
   const [tenantId, setTenantId] = useState('');
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<'excel' | 'pdf' | null>(null);
 
   useEffect(() => {
     if (!propertyId) {
@@ -36,31 +40,46 @@ const ReportsScreen = () => {
     void loadTenants();
   }, [propertyId]);
 
+  useEffect(() => {
+    if (type === 'tenant' && !propertyId) setType('rent');
+  }, [propertyId, type]);
+
+  const basePath = () => (propertyId ? `/properties/${propertyId}/reports` : '/reports');
+
+  const reportRequest = (): { path: string; params: Record<string, string>; fileName: string } => {
+    const { month, year } = getMonthParts(monthKey);
+    if (type === 'rent') return { path: `${basePath()}/monthly-rent`, params: { month: String(month), year: String(year) }, fileName: `monthly-rent-${monthKey}` };
+    if (type === 'income') return { path: `${basePath()}/property-income`, params: { start, end }, fileName: `property-income-${start}-${end}` };
+    if (type === 'utility') return { path: `${basePath()}/utility-bills`, params: { month: monthKey }, fileName: `utility-bills-${monthKey}` };
+    if (type === 'maintenance') return { path: `${basePath()}/maintenance-expenses`, params: { start, end }, fileName: `maintenance-${start}-${end}` };
+    return { path: `/properties/${propertyId}/reports/tenant/${tenantId}`, params: {}, fileName: `tenant-payments-${tenantId}` };
+  };
+
   const run = async () => {
-    if (!propertyId) return;
+    if (type === 'tenant' && (!propertyId || !tenantId)) return;
     setLoading(true);
     try {
-      const { month, year } = getMonthParts(monthKey);
-      let response;
-      if (type === 'rent') {
-        response = await api.get(`/properties/${propertyId}/reports/monthly-rent`, { params: { month, year } });
-      } else if (type === 'income') {
-        response = await api.get(`/properties/${propertyId}/reports/property-income`, { params: { start, end } });
-      } else if (type === 'utility') {
-        response = await api.get(`/properties/${propertyId}/reports/utility-bills`, { params: { month: monthKey } });
-      } else if (type === 'maintenance') {
-        response = await api.get(`/properties/${propertyId}/reports/maintenance-expenses`, { params: { start, end } });
-      } else {
-        response = await api.get(`/properties/${propertyId}/reports/tenant/${tenantId}`);
-      }
+      const { path, params } = reportRequest();
+      const response = await api.get(path, { params });
       setRows(response.data?.rows || []);
     } finally {
       setLoading(false);
     }
   };
 
+  const exportReport = async (format: 'excel' | 'pdf') => {
+    if (type === 'tenant' && (!propertyId || !tenantId)) return;
+    setExportingFormat(format);
+    try {
+      const { path, params, fileName } = reportRequest();
+      await downloadAndShareReport(path, params, `${fileName}.${format === 'excel' ? 'xlsx' : 'pdf'}`, format);
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
   return (
-    <Screen title="Reports" subtitle="Preview report data on mobile.">
+    <Screen title="Reports" subtitle={propertyId ? 'Preview, download, or share this report.' : 'No property selected — reports cover all properties.'}>
       <PropertyFilter properties={properties} value={propertyId} onChange={setPropertyId} />
       <SegmentedControl
         options={[
@@ -71,7 +90,7 @@ const ReportsScreen = () => {
           { label: 'Tenant', value: 'tenant' }
         ]}
         value={type}
-        onChange={(value) => setType(value as any)}
+        onChange={(value) => setType(value as ReportType)}
       />
       {(type === 'rent' || type === 'utility') ? <MonthSwitcher value={monthKey} onChange={setMonthKey} /> : null}
       {(type === 'income' || type === 'maintenance') ? (
@@ -83,14 +102,22 @@ const ReportsScreen = () => {
       {type === 'tenant' ? (
         <Card>
           <Text style={styles.sectionTitle}>Tenant</Text>
-          <View style={styles.stack}>
-            {tenants.map((tenant) => (
-              <Button key={tenant._id} label={tenant.fullName} variant={tenantId === tenant._id ? 'primary' : 'secondary'} onPress={() => setTenantId(tenant._id)} />
-            ))}
-          </View>
+          {!propertyId ? (
+            <Text style={styles.meta}>Choose a property to pick a tenant.</Text>
+          ) : (
+            <View style={styles.stack}>
+              {tenants.map((tenant) => (
+                <Button key={tenant._id} label={tenant.fullName} variant={tenantId === tenant._id ? 'primary' : 'secondary'} onPress={() => setTenantId(tenant._id)} />
+              ))}
+            </View>
+          )}
         </Card>
       ) : null}
-      <Button label={loading ? 'Loading...' : 'Load Report'} onPress={run} loading={loading} disabled={!propertyId || (type === 'tenant' && !tenantId)} />
+      <View style={styles.actionRow}>
+        <Button label={loading ? 'Loading...' : 'Preview'} variant="secondary" onPress={run} loading={loading} disabled={type === 'tenant' && (!propertyId || !tenantId)} />
+        <Button label="Excel" onPress={() => exportReport('excel')} loading={exportingFormat === 'excel'} disabled={type === 'tenant' && (!propertyId || !tenantId)} />
+        <Button label="PDF" onPress={() => exportReport('pdf')} loading={exportingFormat === 'pdf'} disabled={type === 'tenant' && (!propertyId || !tenantId)} />
+      </View>
       <Card>
         <Text style={styles.sectionTitle}>Rows</Text>
         <View style={styles.stack}>
@@ -100,7 +127,7 @@ const ReportsScreen = () => {
                 <Text key={key} style={styles.meta}>{key}: {String(value)}</Text>
               ))}
             </View>
-          )) : <Text style={styles.meta}>Run a report to see rows here.</Text>}
+          )) : <Text style={styles.meta}>Run a preview to see rows here.</Text>}
         </View>
       </Card>
     </Screen>
@@ -110,6 +137,7 @@ const ReportsScreen = () => {
 const styles = StyleSheet.create({
   sectionTitle: { fontFamily: fonts.headingSemi, fontSize: 20, color: colors.text },
   stack: { gap: 10 },
+  actionRow: { flexDirection: 'row', gap: 10 },
   rowCard: { borderRadius: 16, backgroundColor: colors.surface, padding: 12, gap: 4 },
   meta: { fontFamily: fonts.body, color: colors.muted },
   input: {
@@ -125,4 +153,3 @@ const styles = StyleSheet.create({
 });
 
 export default ReportsScreen;
-

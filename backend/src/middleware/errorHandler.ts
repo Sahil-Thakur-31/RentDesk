@@ -8,6 +8,9 @@ export const notFound = (req: Request, res: Response) => {
 export const errorHandler = (err: unknown, req: Request, res: Response, next: NextFunction) => {
   const error = err as HttpError;
   const status = error.statusCode || 500;
+  if (status >= 500) {
+    console.error(`[errorHandler] ${req.method} ${req.originalUrl} ->`, err);
+  }
   res.status(status).json({
     message: error.message || 'Internal Server Error',
     details: error.details || null

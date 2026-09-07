@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import api from '../lib/api';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
@@ -12,6 +13,8 @@ import { usePortfolio } from '../context/PortfolioContext';
 import { colors, fonts } from '../lib/theme';
 import { capitalize, formatCurrency } from '../lib/format';
 import { formatDate, getCurrentMonthValue, getMonthParts } from '../lib/date';
+import { buildPaymentReceipt } from '../lib/receipt';
+import { shareReceipt } from '../lib/exportFile';
 
 const getId = (value: any) => String(value?._id || value || '');
 const startOfMonth = (monthKey: string) => new Date(`${monthKey}-01T00:00:00`);
@@ -53,7 +56,8 @@ const ChoiceChips = ({
 );
 
 const TransactionsScreen = ({ navigation, route }: any) => {
-  const { properties, refresh } = usePortfolio();
+  const { properties, portfolio, refresh } = usePortfolio();
+  const [sharingId, setSharingId] = useState<string | null>(null);
   const [propertyId, setPropertyId] = useState('');
   const [type, setType] = useState<TransactionType>('all');
   const [monthKey, setMonthKey] = useState(getCurrentMonthValue());
@@ -118,7 +122,12 @@ const TransactionsScreen = ({ navigation, route }: any) => {
         const responses = await Promise.all(
           selectedProperties.map(async (property) => {
             const response = await api.get(`/properties/${property._id}/payments`, { params: { startDate: monthStart, endDate: monthEnd } });
-            return (response.data || []).map((item: any) => ({ ...item, propertyName: property.name }));
+            return (response.data || []).map((item: any) => ({
+              ...item,
+              propertyId: property._id,
+              propertyName: property.name,
+              propertyAddress: property.address
+            }));
           })
         );
         setItems(responses.flat());
@@ -183,6 +192,16 @@ const TransactionsScreen = ({ navigation, route }: any) => {
       setSelectedUnitId(getId(selectedTenant.assignedUnit || selectedTenant.unitId));
     }
   }, [depositHeld, depositMode, maintenanceMode, modalProperty, paymentType, selectedRentRecord, selectedTenant, selectedUtilityBill]);
+
+  const viewReceipt = async (item: any) => {
+    setSharingId(item._id);
+    try {
+      const receipt = buildPaymentReceipt(item, item.propertyName || '-', item.propertyAddress);
+      await shareReceipt(receipt, portfolio?.name);
+    } finally {
+      setSharingId(null);
+    }
+  };
 
   const filteredItems = useMemo(() => {
     if (type === 'all') return items;
@@ -302,7 +321,12 @@ const TransactionsScreen = ({ navigation, route }: any) => {
       const responses = await Promise.all(
         selectedProperties.map(async (property) => {
           const response = await api.get(`/properties/${property._id}/payments`, { params: { startDate: monthStart, endDate: monthEnd } });
-          return (response.data || []).map((item: any) => ({ ...item, propertyName: property.name }));
+          return (response.data || []).map((item: any) => ({
+            ...item,
+            propertyId: property._id,
+            propertyName: property.name,
+            propertyAddress: property.address
+          }));
         })
       );
       setItems(responses.flat());
@@ -339,19 +363,29 @@ const TransactionsScreen = ({ navigation, route }: any) => {
       <View style={styles.list}>
         {filteredItems.length ? (
           filteredItems.map((item) => (
-            <Card key={item._id}>
-              <View style={styles.rowBetween}>
+            <Card key={item._id} style={styles.txCard}>
+              <View style={styles.txRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.itemTitle}>{capitalize(item.type)}</Text>
-                  <Text style={styles.itemMeta}>{item.propertyName || '-'}</Text>
-                  <Text style={styles.itemMeta}>{formatDate(item.date)}</Text>
+                  <View style={styles.txTitleRow}>
+                    <Text style={styles.itemTitle}>{item.type === 'refund' ? 'Refund' : capitalize(item.type)}</Text>
+                    <Pill label={capitalize(item.type)} tone="default" />
+                  </View>
+                  <Text style={styles.itemMeta} numberOfLines={1}>
+                    {[item.propertyName, formatDate(item.date)].filter(Boolean).join(' · ')}
+                  </Text>
+                  {item.notes ? <Text style={styles.itemMeta} numberOfLines={1}>{item.notes}</Text> : null}
                 </View>
-                <View style={{ alignItems: 'flex-end', gap: 8 }}>
+                <View style={styles.txRight}>
                   <Text style={styles.amount}>{formatCurrency(item.amount)}</Text>
-                  <Pill label={item.type === 'refund' ? 'Refund' : capitalize(item.type)} />
+                  <Pressable style={styles.receiptButton} onPress={() => viewReceipt(item)} disabled={sharingId === item._id} hitSlop={8}>
+                    {sharingId === item._id ? (
+                      <ActivityIndicator size="small" color={colors.accent} />
+                    ) : (
+                      <Ionicons name="document-text-outline" size={16} color={colors.accent} />
+                    )}
+                  </Pressable>
                 </View>
               </View>
-              {item.notes ? <Text style={[styles.itemMeta, { marginTop: 10 }]}>{item.notes}</Text> : null}
             </Card>
           ))
         ) : (
@@ -442,11 +476,23 @@ const TransactionsScreen = ({ navigation, route }: any) => {
 };
 
 const styles = StyleSheet.create({
-  list: { gap: 12 },
+  list: { gap: 8 },
   rowBetween: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
-  itemTitle: { fontFamily: fonts.headingSemi, fontSize: 18, color: colors.text },
-  itemMeta: { fontFamily: fonts.body, fontSize: 13, color: colors.muted, marginTop: 4 },
-  amount: { fontFamily: fonts.headingSemi, fontSize: 20, color: colors.text },
+  txCard: { paddingVertical: 12, paddingHorizontal: 14 },
+  txRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  txTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  txRight: { alignItems: 'flex-end', gap: 6 },
+  receiptButton: {
+    height: 30,
+    width: 30,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accentSoft
+  },
+  itemTitle: { fontFamily: fonts.headingSemi, fontSize: 15, color: colors.text },
+  itemMeta: { fontFamily: fonts.body, fontSize: 12, color: colors.muted, marginTop: 2 },
+  amount: { fontFamily: fonts.headingSemi, fontSize: 16, color: colors.text },
   successCard: { borderColor: '#bbf7d0', backgroundColor: '#ecfdf5' },
   errorCard: { borderColor: '#fecaca', backgroundColor: '#fef2f2' },
   successText: { fontFamily: fonts.bodyBold, color: colors.success },

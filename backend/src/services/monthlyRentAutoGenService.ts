@@ -27,6 +27,11 @@ export const ensureCurrentMonthRentGenerated = async () => {
         }
       }
       lastGeneratedMonthKey = monthKey;
+    } catch (err) {
+      // Best-effort background task — a transient DB hiccup here (e.g. Property.find)
+      // must never fail the real request that triggered it. Leave lastGeneratedMonthKey
+      // unset so the next request simply retries.
+      console.error('[monthlyRentAutoGen] failed to run for', monthKey, err);
     } finally {
       inFlight = null;
     }

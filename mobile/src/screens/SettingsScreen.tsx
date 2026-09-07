@@ -1,4 +1,4 @@
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
 import Button from '../components/Button';
@@ -7,13 +7,39 @@ import { useAuth } from '../context/AuthContext';
 import { LANGUAGE_OPTIONS, useI18n } from '../context/I18nContext';
 import { colors, fonts } from '../lib/theme';
 import { useState } from 'react';
+import api from '../lib/api';
 
 const SettingsScreen = () => {
   const { t, language, setLanguage } = useI18n();
   const { me, portfolio, membership } = usePortfolio();
   const { signOut } = useAuth();
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const selectedLanguage = LANGUAGE_OPTIONS.find((option) => option.value === language);
+
+  const confirmDeleteAccount = () => {
+    Alert.alert(
+      t('Delete this account permanently?'),
+      t('This cannot be undone. Your access will be removed from every portfolio immediately.'),
+      [
+        { text: t('Cancel'), style: 'cancel' },
+        {
+          text: t('Confirm Delete'),
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await api.delete('/auth/me');
+              await signOut();
+            } catch (err: any) {
+              Alert.alert(t('Unable to delete account'), err?.response?.data?.message || t('Unable to delete account right now.'));
+              setDeleting(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   return (
     <Screen title="Settings">
@@ -40,6 +66,7 @@ const SettingsScreen = () => {
       </Card>
 
       <Button label="Sign Out" variant="danger" onPress={() => signOut()} />
+      <Button label="Delete My Account" variant="danger" loading={deleting} onPress={confirmDeleteAccount} />
 
       <Modal visible={showLanguagePicker} transparent animationType="fade" onRequestClose={() => setShowLanguagePicker(false)}>
         <View style={styles.overlay}>

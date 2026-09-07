@@ -29,11 +29,6 @@ const DashboardScreen = ({ navigation }: any) => {
   const [propertyId, setPropertyId] = useState('');
   const [monthKey, setMonthKey] = useState(getCurrentMonthValue());
   const [dashboard, setDashboard] = useState<any>(null);
-  const [summaryCounts, setSummaryCounts] = useState({
-    properties: 0,
-    units: 0,
-    tenants: 0
-  });
   const [nextActions, setNextActions] = useState<Record<ActionTab, any[]>>({
     rent: [],
     electricity: [],
@@ -140,15 +135,9 @@ const DashboardScreen = ({ navigation }: any) => {
             }));
         });
 
-        setSummaryCounts({
-          properties: selectedProperties.length,
-          units: Number(dashboardRes.data?.totals?.totalUnits || 0),
-          tenants: perPropertyData.reduce((sum, entry) => sum + (entry.tenants || []).filter((tenant: any) => tenant.isActive).length, 0)
-        });
         setNextActions({ rent, electricity, maintenance, deposit, other: [] });
       } catch {
         setDashboard(null);
-        setSummaryCounts({ properties: 0, units: 0, tenants: 0 });
         setNextActions({ rent: [], electricity: [], maintenance: [], deposit: [], other: [] });
       } finally {
         setLoading(false);
@@ -160,6 +149,41 @@ const DashboardScreen = ({ navigation }: any) => {
 
   const totals = dashboard?.totals || {};
 
+  const cashProgress = useMemo(() => {
+    const rawItems = [
+      { label: 'Rent', collected: totals.collectedRent || 0, total: totals.monthlyExpectedRent || 0, color: '#0f8b83' },
+      { label: 'Electricity', collected: totals.monthlyElectricity?.collected || 0, total: totals.monthlyElectricity?.total || 0, color: colors.warning },
+      { label: 'Maintenance', collected: totals.monthlyMaintenanceCollected || 0, total: totals.monthlyMaintenanceExpected || 0, color: '#0284c7' },
+      { label: 'Other', collected: totals.otherCashIntake || 0, total: totals.otherCashIntake || 0, color: colors.success }
+    ]
+      .map((item) => ({ ...item, total: Math.max(item.total, item.collected) }))
+      .filter((item) => item.total > 0 || item.collected > 0);
+
+    const grandTotal = rawItems.reduce((sum, item) => sum + item.total, 0);
+    const grandCollected = rawItems.reduce((sum, item) => sum + Math.min(item.collected, item.total), 0);
+    const remaining = Math.max(0, grandTotal - grandCollected);
+
+    return {
+      items: rawItems.map((item) => {
+        const collected = Math.min(item.collected, item.total);
+        return { ...item, collected, share: grandTotal ? (collected / grandTotal) * 100 : 0 };
+      }),
+      remaining,
+      remainingShare: grandTotal ? (remaining / grandTotal) * 100 : 0,
+      grandTotal,
+      grandCollected,
+      overallRate: grandTotal ? Math.round((grandCollected / grandTotal) * 100) : 0
+    };
+  }, [
+    totals.collectedRent,
+    totals.monthlyExpectedRent,
+    totals.monthlyElectricity?.collected,
+    totals.monthlyElectricity?.total,
+    totals.monthlyMaintenanceCollected,
+    totals.monthlyMaintenanceExpected,
+    totals.otherCashIntake
+  ]);
+
   return (
     <Screen
       title="Dashboard"
@@ -169,16 +193,96 @@ const DashboardScreen = ({ navigation }: any) => {
       <MonthSwitcher value={monthKey} onChange={setMonthKey} />
 
       <View style={styles.grid}>
-        <StatTile label="Rent" value={`${formatCurrency(totals.collectedRent)} / ${formatCurrency(totals.monthlyExpectedRent)}`} note={`${formatCurrency(totals.pendingRent)} pending`} tone={totals.pendingRent > 0 ? 'warning' : 'success'} />
-        <StatTile label="Electricity" value={`${formatCurrency(totals.monthlyElectricity?.collected)} / ${formatCurrency(totals.monthlyElectricity?.total)}`} note={`${formatCurrency(totals.monthlyElectricity?.unpaid)} unpaid`} tone={(totals.monthlyElectricity?.unpaid || 0) > 0 ? 'warning' : 'success'} />
-        <StatTile label="Maintenance" value={`${formatCurrency(totals.monthlyMaintenanceCollected)} / ${formatCurrency(totals.monthlyMaintenanceExpected)}`} note={`${formatCurrency(totals.monthlyMaintenancePending)} pending`} tone={totals.monthlyMaintenancePending > 0 ? 'warning' : 'success'} />
-        <StatTile label="Deposit" value={`${formatCurrency(totals.depositCollected)} / ${formatCurrency(totals.depositRequired)}`} note={`${formatCurrency(totals.depositPending)} pending`} tone={totals.depositPending > 0 ? 'warning' : 'success'} />
-        <StatTile label="Other Cash" value={formatCurrency(totals.otherCashIntake)} note="Extra income" />
-        <StatTile label="Properties" value={summaryCounts.properties} note="In current filter" />
-        <StatTile label="Units" value={summaryCounts.units} note={`${totals.occupiedUnits || 0} occupied`} />
-        <StatTile label="Tenants" value={summaryCounts.tenants} note="Active tenants" />
-        <StatTile label="Occupancy" value={`${totals.occupiedUnits || 0}/${totals.totalUnits || 0}`} note={`${totals.vacantUnits || 0} vacant`} tone={(totals.vacantUnits || 0) > 0 ? 'warning' : 'success'} />
+        <StatTile
+          label="Total Revenue"
+          value={formatCurrency(totals.monthlyRevenue)}
+          note={`${formatCurrency(totals.lifetimeRevenue)} lifetime, all properties`}
+          icon="trending-up-outline"
+        />
+        <StatTile
+          label="Rent"
+          value={`${formatCurrency(totals.collectedRent)} / ${formatCurrency(totals.monthlyExpectedRent)}`}
+          note={`${formatCurrency(totals.pendingRent)} pending`}
+          tone={totals.pendingRent > 0 ? 'warning' : 'success'}
+          icon="home-outline"
+        />
+        <StatTile
+          label="Electricity"
+          value={`${formatCurrency(totals.monthlyElectricity?.collected)} / ${formatCurrency(totals.monthlyElectricity?.total)}`}
+          note={`${formatCurrency(totals.monthlyElectricity?.unpaid)} unpaid`}
+          tone={(totals.monthlyElectricity?.unpaid || 0) > 0 ? 'warning' : 'success'}
+          icon="flash-outline"
+        />
+        <StatTile
+          label="Maintenance"
+          value={`${formatCurrency(totals.monthlyMaintenanceCollected)} / ${formatCurrency(totals.monthlyMaintenanceExpected)}`}
+          note={`${formatCurrency(totals.monthlyMaintenancePending)} pending`}
+          tone={totals.monthlyMaintenancePending > 0 ? 'warning' : 'success'}
+          icon="construct-outline"
+        />
+        <StatTile
+          label="Deposit"
+          value={`${formatCurrency(totals.depositCollected)} / ${formatCurrency(totals.depositRequired)}`}
+          note={`${formatCurrency(totals.depositPending)} pending`}
+          tone={totals.depositPending > 0 ? 'warning' : 'success'}
+          icon="shield-checkmark-outline"
+          fullWidth
+        />
+        <StatTile label="Other Cash" value={formatCurrency(totals.otherCashIntake)} note="Extra income" icon="cash-outline" />
+        <StatTile
+          label="Occupancy"
+          value={`${totals.occupiedUnits || 0}/${totals.totalUnits || 0}`}
+          note={`${totals.vacantUnits || 0} vacant`}
+          tone={(totals.vacantUnits || 0) > 0 ? 'warning' : 'success'}
+          icon="key-outline"
+        />
       </View>
+
+      <Card>
+        <Text style={styles.sectionTitle}>{t('Cash Received / Expected')}</Text>
+        <View style={styles.progressHeaderRow}>
+          <Text style={styles.progressRate}>{cashProgress.overallRate}%</Text>
+          <Text style={styles.progressTotals}>
+            {formatCurrency(cashProgress.grandCollected)} / {formatCurrency(cashProgress.grandTotal)}
+          </Text>
+        </View>
+        <View style={styles.progressBar}>
+          {cashProgress.items.length ? (
+            <>
+              {cashProgress.items.map((item) => (
+                <View key={item.label} style={{ width: `${item.share}%`, backgroundColor: item.color, height: '100%' }} />
+              ))}
+              {cashProgress.remainingShare > 0 ? (
+                <View style={{ width: `${cashProgress.remainingShare}%`, backgroundColor: 'rgba(15,23,42,0.12)', height: '100%' }} />
+              ) : null}
+            </>
+          ) : (
+            <View style={{ width: '100%', height: '100%', backgroundColor: colors.surface }} />
+          )}
+        </View>
+        <View style={styles.legendWrap}>
+          {cashProgress.items.map((item) => (
+            <View key={`${item.label}-legend`} style={styles.legendRow}>
+              <View style={styles.legendLeft}>
+                <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+                <Text style={styles.legendLabel}>{t(item.label)}</Text>
+              </View>
+              <Text style={styles.legendValue}>
+                {formatCurrency(item.collected)} / {formatCurrency(item.total)}
+              </Text>
+            </View>
+          ))}
+          {cashProgress.remaining > 0 ? (
+            <View style={styles.legendRow}>
+              <View style={styles.legendLeft}>
+                <View style={[styles.legendDot, { backgroundColor: 'rgba(15,23,42,0.2)' }]} />
+                <Text style={styles.legendLabel}>{t('Remaining')}</Text>
+              </View>
+              <Text style={styles.legendValue}>{formatCurrency(cashProgress.remaining)} {t('pending')}</Text>
+            </View>
+          ) : null}
+        </View>
+      </Card>
 
       <Card>
         <Text style={styles.sectionTitle}>{t('Next Actions')}</Text>
@@ -232,7 +336,17 @@ const styles = StyleSheet.create({
   actionTitle: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.text },
   actionMeta: { fontFamily: fonts.body, fontSize: 13, color: colors.muted, marginTop: 2 },
   actionAmount: { fontFamily: fonts.headingSemi, fontSize: 18, color: colors.text },
-  emptyText: { fontFamily: fonts.body, color: colors.muted }
+  emptyText: { fontFamily: fonts.body, color: colors.muted },
+  progressHeaderRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12 },
+  progressRate: { fontFamily: fonts.heading, fontSize: 28, color: colors.text },
+  progressTotals: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text },
+  progressBar: { flexDirection: 'row', height: 14, borderRadius: 999, overflow: 'hidden', backgroundColor: colors.surface },
+  legendWrap: { gap: 8, marginTop: 14 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 14, backgroundColor: colors.surface, paddingHorizontal: 12, paddingVertical: 9 },
+  legendLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  legendDot: { height: 9, width: 9, borderRadius: 5 },
+  legendLabel: { fontFamily: fonts.body, fontSize: 12, color: colors.muted },
+  legendValue: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.text }
 });
 
 export default DashboardScreen;

@@ -1,72 +1,46 @@
-﻿import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import api from '../lib/api';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
-import Pill from '../components/Pill';
+import Button from '../components/Button';
 import { usePortfolio } from '../context/PortfolioContext';
+import { useNotificationsFeed } from '../lib/notificationCenter';
 import { colors, fonts } from '../lib/theme';
-import { getCurrentMonthValue, getMonthParts } from '../lib/date';
+
+const TONE_DOT: Record<string, string> = {
+  success: colors.success,
+  warning: colors.warning,
+  info: colors.accent
+};
 
 const NotificationsScreen = () => {
-  const { properties, portfolio, membership } = usePortfolio();
-  const [items, setItems] = useState<Array<{ title: string; body: string; tone: 'default' | 'success' | 'warning' | 'danger' }>>([]);
-  const [loading, setLoading] = useState(true);
-  const monthKey = getCurrentMonthValue();
-  const { month, year } = getMonthParts(monthKey);
-
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const dashboardRes = await api.get('/dashboard', { params: { month, year } });
-        const next: Array<{ title: string; body: string; tone: 'default' | 'success' | 'warning' | 'danger' }> = [];
-        (dashboardRes.data?.lists?.pendingRentTenants || []).slice(0, 5).forEach((item: any) => {
-          next.push({
-            title: 'Pending rent',
-            body: `${item.tenantId?.fullName || 'Tenant'} still has rent pending for ${monthKey}.`,
-            tone: 'warning'
-          });
-        });
-
-        if ((portfolio?.joinRequests || []).length && (membership?.role === 'owner' || membership?.role === 'warden')) {
-          next.push({
-            title: 'Join requests',
-            body: `${portfolio.joinRequests.length} request(s) need approval.`,
-            tone: 'default'
-          });
-        }
-
-        if (!next.length && properties.length) {
-          next.push({
-            title: 'All caught up',
-            body: 'No urgent notifications right now.',
-            tone: 'success'
-          });
-        }
-
-        setItems(next);
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, [membership?.role, month, monthKey, portfolio?.joinRequests, properties.length, year]);
+  const { properties, portfolio } = usePortfolio();
+  const { notifications, loading, unreadCount, markRead, markAllRead } = useNotificationsFeed(properties, portfolio);
 
   return (
-    <Screen title="Notifications" subtitle="Recent items that need attention.">
+    <Screen
+      title="Notifications"
+      subtitle={unreadCount ? `${unreadCount} unread` : 'You are all caught up.'}
+      right={unreadCount ? <Button label="Mark all read" variant="secondary" small onPress={markAllRead} /> : undefined}
+    >
       <View style={styles.stack}>
-        {items.length ? items.map((item, index) => (
-          <Card key={`${item.title}-${index}`}>
-            <View style={styles.rowBetween}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.title}>{item.title}</Text>
-                <Text style={styles.body}>{item.body}</Text>
-              </View>
-              <Pill label={item.tone === 'success' ? 'Done' : item.tone === 'warning' ? 'Pending' : 'Info'} tone={item.tone} />
-            </View>
-          </Card>
-        )) : <Card><Text style={styles.body}>{loading ? 'Loading notifications...' : 'No notifications yet.'}</Text></Card>}
+        {notifications.length ? (
+          notifications.map((item) => (
+            <Pressable key={item.id} onPress={() => markRead(item.id)}>
+              <Card style={item.read ? styles.readCard : undefined}>
+                <View style={styles.row}>
+                  {!item.read ? <View style={[styles.dot, { backgroundColor: TONE_DOT[item.tone] || colors.accent }]} /> : null}
+                  <View style={{ flex: 1 }}>
+                    <Text style={item.read ? styles.readTitle : [styles.title, { color: TONE_DOT[item.tone] || colors.text }]}>{item.title}</Text>
+                    <Text style={styles.body}>{item.description}</Text>
+                    <Text style={styles.time}>{item.time}</Text>
+                  </View>
+                </View>
+              </Card>
+            </Pressable>
+          ))
+        ) : (
+          <Card><Text style={styles.body}>{loading ? 'Loading notifications...' : 'No notifications yet.'}</Text></Card>
+        )}
       </View>
     </Screen>
   );
@@ -74,10 +48,13 @@ const NotificationsScreen = () => {
 
 const styles = StyleSheet.create({
   stack: { gap: 12 },
-  rowBetween: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
-  title: { fontFamily: fonts.headingSemi, fontSize: 18, color: colors.text },
-  body: { fontFamily: fonts.body, color: colors.muted, marginTop: 6 }
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  dot: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },
+  title: { fontFamily: fonts.headingSemi, fontSize: 16 },
+  readTitle: { fontFamily: fonts.body, fontSize: 16, color: colors.muted },
+  readCard: { backgroundColor: colors.background, borderColor: colors.border },
+  body: { fontFamily: fonts.body, color: colors.muted, marginTop: 4 },
+  time: { fontFamily: fonts.body, color: colors.muted, marginTop: 4, fontSize: 12 }
 });
 
 export default NotificationsScreen;
-

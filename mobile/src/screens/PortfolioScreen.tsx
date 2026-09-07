@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import api from '../lib/api';
 import Screen from '../components/Screen';
 import PropertyFilter from '../components/PropertyFilter';
@@ -36,9 +37,9 @@ const ChoiceChips = ({
   </View>
 );
 
-const PortfolioScreen = ({ navigation }: any) => {
+const PortfolioScreen = ({ navigation, route }: any) => {
   const { properties, refresh } = usePortfolio();
-  const [tab, setTab] = useState<PortfolioTab>('properties');
+  const [tab, setTab] = useState<PortfolioTab>(route?.params?.initialTab || 'properties');
   const [propertyId, setPropertyId] = useState('');
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -211,7 +212,7 @@ const PortfolioScreen = ({ navigation }: any) => {
 
   return (
     <Screen
-      title="Portfolio"
+      title={tab === 'properties' ? 'Properties' : tab === 'units' ? 'Units' : 'Tenants'}
       right={
         <View style={styles.headerActions}>
           <Button label="Add" small onPress={openModal} />
@@ -244,15 +245,16 @@ const PortfolioScreen = ({ navigation }: any) => {
             if (tab === 'properties') {
               return (
                 <Pressable key={item._id} onPress={() => navigation.navigate('PropertyDetails', { propertyId: item._id })}>
-                  <Card>
-                    <View style={styles.rowBetween}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.title}>{item.name}</Text>
-                        <Text style={styles.meta}>{item.address}</Text>
-                        <Text style={styles.meta}>{`${item.city}, ${item.state}`}</Text>
-                      </View>
-                      <Pill label={item.propertyType} />
+                  <Card style={styles.listCard}>
+                    <View style={styles.iconBadge}>
+                      <Ionicons name="business-outline" size={18} color={colors.accent} />
                     </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.title} numberOfLines={1}>{item.name}</Text>
+                      <Text style={styles.meta} numberOfLines={1}>{`${item.address} · ${item.city}, ${item.state}`}</Text>
+                    </View>
+                    <Pill label={item.propertyType} />
+                    <Ionicons name="chevron-forward" size={18} color={colors.muted} />
                   </Card>
                 </Pressable>
               );
@@ -264,18 +266,19 @@ const PortfolioScreen = ({ navigation }: any) => {
                   key={item._id}
                   onPress={() => navigation.navigate('UnitDetails', { propertyId: item.propertyId, unitId: item._id })}
                 >
-                  <Card>
-                    <View style={styles.rowBetween}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.title}>{item.unitNumber}</Text>
-                        <Text style={styles.meta}>{item.propertyName}</Text>
-                        <Text style={styles.meta}>{`${item.unitType} • ${formatCurrency(item.monthlyRent)}`}</Text>
-                      </View>
-                      <Pill
-                        label={item.status === 'maintenance' ? 'Under Repair' : item.status}
-                        tone={item.status === 'occupied' ? 'success' : item.status === 'maintenance' ? 'warning' : 'default'}
-                      />
+                  <Card style={styles.listCard}>
+                    <View style={styles.iconBadge}>
+                      <Ionicons name="grid-outline" size={18} color={colors.accent} />
                     </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.title} numberOfLines={1}>{item.unitNumber}</Text>
+                      <Text style={styles.meta} numberOfLines={1}>{`${item.propertyName} · ${item.unitType} · ${formatCurrency(item.monthlyRent)}`}</Text>
+                    </View>
+                    <Pill
+                      label={item.status === 'maintenance' ? 'Under Repair' : item.status}
+                      tone={item.status === 'occupied' ? 'success' : item.status === 'maintenance' ? 'warning' : 'default'}
+                    />
+                    <Ionicons name="chevron-forward" size={18} color={colors.muted} />
                   </Card>
                 </Pressable>
               );
@@ -286,15 +289,16 @@ const PortfolioScreen = ({ navigation }: any) => {
                 key={item._id}
                 onPress={() => navigation.navigate('TenantDetails', { propertyId: item.propertyId, tenantId: item._id })}
               >
-                <Card>
-                  <View style={styles.rowBetween}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.title}>{item.fullName}</Text>
-                      <Text style={styles.meta}>{item.propertyName}</Text>
-                      <Text style={styles.meta}>{item.phone}</Text>
-                    </View>
-                    <Pill label={item.isActive ? 'Active' : 'Moved Out'} tone={item.isActive ? 'success' : 'warning'} />
+                <Card style={styles.listCard}>
+                  <View style={styles.iconBadge}>
+                    <Ionicons name="person-outline" size={18} color={colors.accent} />
                   </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.title} numberOfLines={1}>{item.fullName}</Text>
+                    <Text style={styles.meta} numberOfLines={1}>{`${item.propertyName} · ${item.phone || '-'}`}</Text>
+                  </View>
+                  <Pill label={item.isActive ? 'Active' : 'Moved Out'} tone={item.isActive ? 'success' : 'warning'} />
+                  <Ionicons name="chevron-forward" size={18} color={colors.muted} />
                 </Card>
               </Pressable>
             );
@@ -403,10 +407,19 @@ const PortfolioScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   link: { fontFamily: fonts.bodyBold, color: colors.accent, marginTop: 12 },
-  list: { gap: 12 },
+  list: { gap: 8 },
   rowBetween: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
-  title: { fontFamily: fonts.headingSemi, fontSize: 18, color: colors.text },
-  meta: { fontFamily: fonts.body, fontSize: 13, color: colors.muted, marginTop: 4 },
+  listCard: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14 },
+  iconBadge: {
+    height: 38,
+    width: 38,
+    borderRadius: 12,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  title: { fontFamily: fonts.headingSemi, fontSize: 15, color: colors.text },
+  meta: { fontFamily: fonts.body, fontSize: 12, color: colors.muted, marginTop: 2 },
   successCard: { borderColor: '#bbf7d0', backgroundColor: '#ecfdf5' },
   errorCard: { borderColor: '#fecaca', backgroundColor: '#fef2f2' },
   successText: { fontFamily: fonts.bodyBold, color: colors.success },

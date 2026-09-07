@@ -26,6 +26,14 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
 
   const token = header.replace('Bearer ', '').trim();
   req.user = await verifyTokenAndLoadUser(token);
-  await ensureCurrentMonthRentGenerated();
+
+  // Best-effort background task, opportunistically kicked off on every request.
+  // It must never be allowed to fail the actual request it rode in on.
+  try {
+    await ensureCurrentMonthRentGenerated();
+  } catch (err) {
+    console.error('[requireAuth] ensureCurrentMonthRentGenerated threw unexpectedly', err);
+  }
+
   next();
 });

@@ -368,7 +368,9 @@ const Login = () => {
           <div className="absolute inset-0 opacity-15" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.8) 1px, transparent 0)', backgroundSize: '22px 22px' }} />
           <div className="relative">
             <div className="flex items-center gap-3">
-              <div className="h-11 w-11 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center font-semibold">RD</div>
+              <div className="h-11 w-11 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center p-1.5">
+                <img src="/logo-mark.png" alt="RentDesk" className="h-full w-full rounded-xl object-cover" />
+              </div>
               <div className="text-xl font-semibold">RentDesk</div>
             </div>
             <h1 className="mt-10 text-3xl font-semibold leading-tight" style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
@@ -403,7 +405,7 @@ const Login = () => {
 
         <form onSubmit={submit} noValidate className="p-8 sm:p-10">
           <div className="mb-6 lg:hidden flex items-center gap-3">
-            <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] text-white flex items-center justify-center font-semibold">RD</div>
+            <img src="/logo-mark.png" alt="RentDesk" className="h-10 w-10 rounded-2xl object-cover" />
             <div className="text-lg font-semibold">RentDesk</div>
           </div>
 

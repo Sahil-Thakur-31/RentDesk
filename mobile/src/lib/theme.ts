@@ -7,8 +7,8 @@
   muted: '#64748b',
   accent: '#0f8b83',
   accentSoft: '#def7f3',
-  success: '#16a34a',
-  warning: '#d97706',
+  success: '#047857',
+  warning: '#b45309',
   danger: '#dc2626'
 };
 

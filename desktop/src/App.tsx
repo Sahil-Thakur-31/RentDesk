@@ -143,9 +143,11 @@ const RequireAuth = ({ children }: { children: ReactElement }) => {
   if (status === 'checking') {
     return (
       <div className="h-screen flex flex-col items-center justify-center gap-4 bg-[var(--bg)] text-sm text-[var(--muted)]">
-        <div className="h-11 w-11 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] text-white flex items-center justify-center font-semibold shadow-[0_10px_20px_rgba(15,118,110,0.3)] animate-pulse">
-          RD
-        </div>
+        <img
+          src="/logo-mark.png"
+          alt="RentDesk"
+          className="h-11 w-11 rounded-2xl object-cover shadow-[0_10px_20px_rgba(15,118,110,0.3)] animate-pulse"
+        />
         {t('Checking session...')}
       </div>
     );

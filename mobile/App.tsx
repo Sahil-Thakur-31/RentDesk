@@ -36,8 +36,9 @@ const MainTabs = () => {
     <Tabs.Navigator
       screenOptions={({ route }) => ({
       headerShown: false,
-      tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border, height: 72, paddingBottom: 10, paddingTop: 10 },
-      tabBarLabelStyle: { fontFamily: fonts.bodyBold, fontSize: 12 },
+      tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border, height: 72, paddingBottom: 10, paddingTop: 8 },
+      tabBarLabelStyle: { fontFamily: fonts.bodyBold, fontSize: 10.5 },
+      tabBarIconStyle: { marginBottom: -2 },
       tabBarActiveTintColor: colors.accent,
       tabBarInactiveTintColor: colors.muted,
       tabBarIcon: ({ color, size }) => {
@@ -46,20 +47,23 @@ const MainTabs = () => {
             ? 'home-outline'
             : route.name === 'PortfolioTab'
               ? 'business-outline'
-              : route.name === 'TransactionsTab'
-                ? 'swap-horizontal-outline'
-                : route.name === 'UtilitiesTab'
-                  ? 'flash-outline'
-                  : 'person-circle-outline';
-        return <Ionicons name={iconName as any} size={size} color={color} />;
+              : route.name === 'UnitsTab'
+                ? 'grid-outline'
+                : route.name === 'TenantsTab'
+                  ? 'people-outline'
+                  : route.name === 'TransactionsTab'
+                    ? 'swap-horizontal-outline'
+                    : 'flash-outline';
+        return <Ionicons name={iconName as any} size={size - 2} color={color} />;
       }
       })}
     >
       <Tabs.Screen name="DashboardTab" component={DashboardScreen} options={{ title: t('Dashboard') }} />
-      <Tabs.Screen name="PortfolioTab" component={PortfolioScreen} options={{ title: t('Portfolio') }} />
+      <Tabs.Screen name="PortfolioTab" component={PortfolioScreen} options={{ title: t('Properties') }} initialParams={{ initialTab: 'properties' }} />
+      <Tabs.Screen name="UnitsTab" component={PortfolioScreen} options={{ title: t('Units') }} initialParams={{ initialTab: 'units' }} />
+      <Tabs.Screen name="TenantsTab" component={PortfolioScreen} options={{ title: t('Tenants') }} initialParams={{ initialTab: 'tenants' }} />
       <Tabs.Screen name="TransactionsTab" component={TransactionsScreen} options={{ title: t('Transactions') }} />
       <Tabs.Screen name="UtilitiesTab" component={UtilitiesScreen} options={{ title: t('Utilities') }} />
-      <Tabs.Screen name="ProfileTab" component={ProfileScreen} options={{ title: t('Profile') }} />
     </Tabs.Navigator>
   );
 };
@@ -82,6 +86,7 @@ const RootNavigator = () => {
           {token ? (
             <>
               <Stack.Screen name="Main" component={MainTabs} />
+              <Stack.Screen name="Profile" component={ProfileScreen} />
               <Stack.Screen name="PropertyDetails" component={PropertyDetailsScreen} />
               <Stack.Screen name="UnitDetails" component={UnitDetailsScreen} />
               <Stack.Screen name="TenantDetails" component={TenantDetailsScreen} />
